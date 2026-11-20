@@ -44,6 +44,7 @@ function pilotSprite(id, mood, hPx, silhouette) {
   const g = c.getContext('2d');
   g.scale(s, s);
   paintPilot(g, PILOTS[id] || PILOTS.vesper, mood);
+  if (!silhouette) celFinish(c);
   if (silhouette) {
     g.setTransform(1, 0, 0, 1, 0, 0);
     g.globalCompositeOperation = 'source-in';
@@ -54,202 +55,270 @@ function pilotSprite(id, mood, hPx, silhouette) {
 const pilotMood = p => (p.hp >= p.maxHp ? 'normal' : p.hp <= 1 || p.hp / p.maxHp <= 0.34 ? 'crit' : 'hurt');
 
 // --------------------------------------------------------------------------
-// Painting
+// Painting: late-90s cel animation look. Longer, angular faces; almond eyes
+// with a heavy upper lid; hard-edged shadow shapes (no halftone); chunky hair
+// locks with a sharp highlight band; muted, warm colours and a little grain.
 // --------------------------------------------------------------------------
-const P_INK = '#14101f';
-function pShade(hex, f) {             // darker / lighter version of a hex colour
-  const n = parseInt(hex.slice(1), 16), t = f < 0 ? 0 : 255, k = Math.abs(f);
-  const c = [n >> 16, (n >> 8) & 255, n & 255].map(v => Math.round(v + (t - v) * k));
-  return `rgb(${c[0]},${c[1]},${c[2]})`;
+const P_INK = '#1d1418';                  // warm near-black line art
+function pRGB(c) {
+  if (c[0] === '#') { const n = parseInt(c.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255]; }
+  return c.match(/\d+/g).slice(0, 3).map(Number);
 }
+const pHex = rgb => '#' + rgb.map(v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('');
+function pMix(a, b, k) { const x = pRGB(a), y = pRGB(b); return pHex(x.map((v, i) => v + (y[i] - v) * k)); }
+function pShade(c, f) { return pMix(c, f < 0 ? '#000000' : '#ffffff', Math.abs(f)); }
+function pMute(c, k) {                    // pull a colour toward a warm grey of the same brightness
+  const [r, g, b] = pRGB(c), l = 0.3 * r + 0.59 * g + 0.11 * b;
+  return pMix(c, pHex([l * 1.04, l * 0.98, l * 0.92]), k);
+}
+const celShadow = c => pMix(pShade(c, -0.12), '#5a2846', 0.3);   // cel shadows lean purple-brown
 function pPoly(g, pts) { g.beginPath(); g.moveTo(pts[0], pts[1]); for (let i = 2; i < pts.length; i += 2) g.lineTo(pts[i], pts[i + 1]); g.closePath(); }
-// fill a shape, give it a hard cel shadow (with halftone dots) on the right, then ink it
-function pCel(g, build, fill, lw, shadeX, soft) {
+
+let P_SHADOW = null;   // when set, shapes just fill with this colour (casts the fringe's shadow onto the face)
+function pCel(g, build, fill, lw, shadeX) {
+  if (P_SHADOW) { build(); g.fillStyle = P_SHADOW; g.fill(); return; }
   build(); g.fillStyle = fill; g.fill();
   g.save(); build(); g.clip();
-  const sx = shadeX === undefined ? 108 : shadeX;
-  g.beginPath(); g.moveTo(sx, -50); g.lineTo(260, -50); g.lineTo(260, 300); g.lineTo(sx - 30, 300); g.closePath();
-  g.fillStyle = soft ? 'rgba(120,40,70,0.13)' : 'rgba(60,20,70,0.24)'; g.fill();
-  g.fillStyle = soft ? 'rgba(120,40,70,0.08)' : 'rgba(60,20,70,0.22)';
-  for (let y = -40; y < 300; y += 6) for (let x = sx - 30 + ((y / 6) % 2) * 3; x < 220; x += 6) {
-    if (x > sx - (y + 50) * 30 / 350) { g.beginPath(); g.arc(x, y, 1.1, 0, Math.PI * 2); g.fill(); }
-  }
+  const sx = shadeX === undefined ? 108 : shadeX;      // a hard, slightly angular shadow on the right
+  g.beginPath(); g.moveTo(sx + 6, -60); g.lineTo(320, -60); g.lineTo(320, 330); g.lineTo(sx - 26, 330); g.lineTo(sx - 8, 150); g.lineTo(sx + 2, 90); g.closePath();
+  g.fillStyle = celShadow(fill); g.fill();
   g.restore();
-  build(); g.lineJoin = 'round'; g.lineWidth = lw || 3; g.strokeStyle = P_INK; g.stroke();
+  build(); g.lineJoin = 'round'; g.lineWidth = (lw || 3) * 0.72; g.strokeStyle = P_INK; g.stroke();
 }
-function pInk(g, lw, fn) { g.beginPath(); fn(); g.lineWidth = lw; g.strokeStyle = P_INK; g.lineCap = 'round'; g.lineJoin = 'round'; g.stroke(); }
+function pInk(g, lw, fn) {
+  if (P_SHADOW) return;
+  g.beginPath(); fn(); g.lineWidth = lw; g.strokeStyle = P_INK; g.lineCap = 'round'; g.lineJoin = 'round'; g.stroke();
+}
+// an adult, angular face: cheekbones, a defined jaw, a pointed chin
 const headPath = g => () => {
-  g.beginPath(); g.moveTo(54, 96);
-  g.bezierCurveTo(50, 40, 150, 40, 146, 96);
-  g.bezierCurveTo(146, 126, 128, 150, 100, 162);
-  g.bezierCurveTo(72, 150, 54, 126, 54, 96);
+  g.beginPath(); g.moveTo(56, 98);
+  g.bezierCurveTo(52, 36, 148, 36, 144, 98);
+  g.lineTo(141, 120); g.lineTo(131, 145); g.quadraticCurveTo(117, 163, 100, 170);
+  g.quadraticCurveTo(83, 163, 69, 145); g.lineTo(59, 120);
   g.closePath();
 };
 
-function paintPilot(g, P, mood) {
+function paintPilot(g, P0, mood) {
   g.lineCap = 'round'; g.lineJoin = 'round';
+  const P = Object.assign({}, P0, {
+    skin: pMute(P0.skin, 0.1), hair: pMute(P0.hair, 0.26), outfit: pMute(P0.outfit, 0.32),
+    accent: pMute(P0.accent, 0.25), eye: pMute(P0.eye, 0.12),
+  });
   const hurt = mood !== 'normal', crit = mood === 'crit';
-  const hairDark = pShade(P.hair, -0.32);
+  const skinShadow = celShadow(P.skin);
 
-  // back hair (behind everything)
   const back = HAIR_BACK[P.style];
   if (back) back(g, P);
 
-  // torso: a high-collared flight suit
-  const narrow = P.f ? 0.9 : 1;
-  g.save(); g.translate(100, 0); g.scale(narrow, 1); g.translate(-100, 0);
-  pCel(g, () => pPoly(g, [6, 240, 16, 206, 34, 186, 74, 176, 100, 190, 126, 176, 166, 186, 184, 206, 194, 240]), P.outfit, 3);
-  pCel(g, () => pPoly(g, [76, 168, 82, 194, 100, 202, 118, 194, 124, 168, 100, 178]), P.accent, 2.5);
-  pInk(g, 2, () => { g.moveTo(100, 202); g.lineTo(100, 240); });
-  g.beginPath(); g.arc(40, 216, 9, 0, Math.PI * 2); g.fillStyle = P.accent; g.fill(); g.lineWidth = 2; g.strokeStyle = P_INK; g.stroke();
+  // torso: broad flight jacket with a turned-up collar and fold lines
+  const wide = P.f ? 0.92 : 1.06;
+  g.save(); g.translate(100, 0); g.scale(wide, 1); g.translate(-100, 0);
+  pCel(g, () => pPoly(g, [4, 240, 12, 204, 30, 186, 72, 174, 100, 192, 128, 174, 170, 186, 188, 204, 196, 240]), P.outfit, 3);
+  pInk(g, 1.3, () => { g.moveTo(34, 196); g.quadraticCurveTo(46, 210, 44, 230); g.moveTo(160, 194); g.quadraticCurveTo(152, 212, 156, 232); g.moveTo(62, 186); g.lineTo(70, 200); });
+  for (const sd of [-1, 1]) pCel(g, () => pPoly(g, [100 + sd * 30, 164, 100 + sd * 14, 200, 100 + sd * 2, 190, 100 + sd * 8, 176]), P.accent, 2.5, sd < 0 ? 80 : 300);
+  pInk(g, 1.6, () => { g.moveTo(100, 194); g.lineTo(100, 240); });
+  g.beginPath(); g.arc(40, 216, 8, 0, Math.PI * 2); g.fillStyle = P.accent; g.fill(); g.lineWidth = 1.6; g.strokeStyle = P_INK; g.stroke();
   g.restore();
 
-  // neck and ears
-  pCel(g, () => pPoly(g, [86, 140, 114, 140, 116, 180, 84, 180]), P.skin, 2.5, 100, true);
-  for (const x of [52, 148]) pCel(g, () => { g.beginPath(); g.ellipse(x, 110, 7, 11, 0, 0, Math.PI * 2); }, P.skin, 2.5, undefined, true);
+  // neck, with the jaw's shadow on it
+  pPoly(g, [85, 138, 115, 138, 117, 184, 83, 184]); g.fillStyle = P.skin; g.fill();
+  pPoly(g, [85, 138, 115, 138, 117, 160, 100, 168, 83, 160]); g.fillStyle = skinShadow; g.fill();
+  pPoly(g, [85, 138, 115, 138, 117, 184, 83, 184]); g.lineWidth = 2; g.strokeStyle = P_INK; g.stroke();
+  for (const x of [54, 146]) pCel(g, () => { g.beginPath(); g.ellipse(x, 112, 6, 11, 0, 0, Math.PI * 2); }, P.skin, 2.4, 300);
 
-  // head
-  pCel(g, headPath(g), P.skin, 3.2, 116, true);
+  // head: flat skin, a cheekbone shadow down the right side, and the fringe's shadow across the forehead
+  const head = headPath(g);
+  head(); g.fillStyle = P.skin; g.fill();
+  g.save(); head(); g.clip();
+  pPoly(g, [126, 40, 180, 40, 180, 200, 100, 200, 120, 160, 133, 134, 136, 108, 130, 78]); g.fillStyle = skinShadow; g.fill();
+  g.translate(3, 9); P_SHADOW = skinShadow; HAIR_FRONT[P.style](g, P); P_SHADOW = null;
+  g.restore();
+  head(); g.lineWidth = 2.4; g.strokeStyle = P_INK; g.stroke();
+
   if (P.acc.includes('beard')) {
-    g.fillStyle = 'rgba(26,20,16,0.85)';
-    g.beginPath(); g.moveTo(56, 112); g.bezierCurveTo(58, 140, 78, 158, 100, 164); g.bezierCurveTo(122, 158, 142, 140, 144, 112);
-    g.bezierCurveTo(136, 128, 124, 134, 116, 132); g.quadraticCurveTo(100, 150, 84, 132); g.bezierCurveTo(76, 134, 64, 128, 56, 112); g.fill();
+    g.fillStyle = pMix('#1a1410', P.skin, 0.1);
+    g.beginPath(); g.moveTo(60, 120); g.lineTo(70, 146); g.quadraticCurveTo(84, 163, 100, 171); g.quadraticCurveTo(116, 163, 130, 146); g.lineTo(140, 120);
+    g.lineTo(132, 136); g.quadraticCurveTo(118, 140, 112, 140); g.quadraticCurveTo(100, 156, 88, 140); g.quadraticCurveTo(82, 140, 68, 136); g.closePath(); g.fill();
   }
   if (P.acc.includes('stubble')) {
-    g.fillStyle = 'rgba(80,70,90,0.35)';
-    for (let i = 0; i < 70; i++) { const a = Math.PI * 0.15 + (i / 70) * Math.PI * 0.7, r = 40 + (i * 7) % 9; g.fillRect(100 + Math.cos(a) * r * 1.05, 112 + Math.sin(a) * r * 1.15, 1.6, 1.6); }
+    g.fillStyle = 'rgba(70,60,80,0.32)';
+    for (let i = 0; i < 90; i++) { const a = Math.PI * 0.12 + (i / 90) * Math.PI * 0.76, r = 44 + (i * 7) % 9; g.fillRect(100 + Math.cos(a) * r * 0.95, 116 + Math.sin(a) * r * 1.12, 1.3, 1.3); }
   }
-  // blush and freckles
-  if (P.f || P.mouth === 'manic') {
-    g.fillStyle = 'rgba(255,110,140,0.35)';
-    for (const x of [72, 128]) { g.beginPath(); g.ellipse(x, 128, 9, 4.5, 0, 0, Math.PI * 2); g.fill(); }
-  }
+  // blush as hatch lines, the classic cel way
+  if (P.f || P.mouth === 'manic') pInk(g, 1.1, () => { for (const x of [70, 124]) for (let k = 0; k < 3; k++) { g.moveTo(x + k * 4, 130); g.lineTo(x + k * 4 + 3, 125); } });
   if (P.acc.includes('freckles')) {
-    g.fillStyle = 'rgba(150,80,50,0.7)';
-    for (const [x, y] of [[66, 124], [72, 128], [78, 124], [122, 124], [128, 128], [134, 124], [70, 132], [130, 132]]) { g.beginPath(); g.arc(x, y, 1.3, 0, Math.PI * 2); g.fill(); }
+    g.fillStyle = 'rgba(130,70,50,0.65)';
+    for (const [x, y] of [[66, 122], [72, 126], [78, 122], [122, 122], [128, 126], [134, 122]]) { g.beginPath(); g.arc(x, y, 1.1, 0, Math.PI * 2); g.fill(); }
   }
 
   // eyes and brows
-  const eyeL = 'open', eyeR = crit ? 'fierce' : hurt ? 'squint' : 'open';
-  drawEye(g, 78, 110, P, -1, crit ? 'fierce' : eyeL);
-  drawEye(g, 122, 110, P, 1, eyeR);
+  drawEye(g, 80, 106, P, -1, crit ? 'fierce' : 'open');
+  drawEye(g, 120, 106, P, 1, crit ? 'fierce' : hurt ? 'shut' : 'open');
   for (const side of [-1, 1]) {
-    const x = 100 + side * 22;
-    const inner = crit ? 6 : hurt ? -5 : -1, outer = crit ? -3 : hurt ? 2 : -2;   // + is lower
-    pInk(g, crit ? 4.4 : 3.6, () => { g.moveTo(x - side * 12, 89 + inner); g.quadraticCurveTo(x, 83 + Math.min(inner, outer), x + side * 13, 89 + outer); });
+    const x = 100 + side * 21;
+    const inner = crit ? 5 : hurt ? -4 : 0, outer = crit ? -3 : hurt ? 1 : -3;
+    pInk(g, 2.6, () => { g.moveTo(x - side * 13, 90 + inner); g.lineTo(x - side * 2, 86 + Math.min(inner, outer) * 0.6); g.lineTo(x + side * 14, 89 + outer); });
   }
-  // nose
-  pInk(g, 2, () => { g.moveTo(101, 118); g.lineTo(97, 126); g.lineTo(101, 127); });
+  // nose: an angular bridge with its own shadow
+  pPoly(g, [101, 108, 107, 126, 100, 129]); g.fillStyle = skinShadow; g.fill();
+  pInk(g, 1.6, () => { g.moveTo(102, 112); g.lineTo(106, 127); g.lineTo(99, 129); });
   drawMouth(g, P, mood);
 
   // marks of battle
-  if (P.acc.includes('scar')) pInk(g, 2, () => { g.moveTo(112, 82); g.lineTo(130, 102); g.moveTo(116, 88); g.lineTo(120, 86); g.moveTo(122, 94); g.lineTo(126, 92); });
-  if (P.acc.includes('scar2')) pInk(g, 2, () => { g.moveTo(84, 118); g.lineTo(112, 130); });
-  if (P.acc.includes('bolt')) { pPoly(g, [124, 118, 132, 118, 128, 125, 134, 125, 122, 138, 126, 128, 120, 128]); g.fillStyle = '#ffd60a'; g.fill(); g.lineWidth = 1.5; g.strokeStyle = P_INK; g.stroke(); }
+  if (P.acc.includes('scar')) pInk(g, 1.6, () => { g.moveTo(112, 80); g.lineTo(130, 100); g.moveTo(116, 86); g.lineTo(120, 84); g.moveTo(122, 92); g.lineTo(126, 90); });
+  if (P.acc.includes('scar2')) pInk(g, 1.6, () => { g.moveTo(84, 120); g.lineTo(112, 130); });
+  if (P.acc.includes('bolt')) { pPoly(g, [124, 118, 132, 118, 128, 125, 134, 125, 122, 138, 126, 128, 120, 128]); g.fillStyle = pMute('#ffd60a', 0.2); g.fill(); g.lineWidth = 1.3; g.strokeStyle = P_INK; g.stroke(); }
   if (hurt) {
-    g.fillStyle = 'rgba(110,40,140,0.32)'; g.beginPath(); g.ellipse(130, 126, 9, 6, -0.3, 0, Math.PI * 2); g.fill();
-    sweat(g, 150, 80, 1);
-    pInk(g, 1.5, () => { g.moveTo(66, 136); g.lineTo(74, 132); g.moveTo(68, 140); g.lineTo(75, 137); });
+    g.fillStyle = 'rgba(100,40,120,0.28)'; g.beginPath(); g.ellipse(130, 126, 9, 6, -0.3, 0, Math.PI * 2); g.fill();
+    sweat(g, 148, 80, 0.9);
+    pInk(g, 1.2, () => { g.moveTo(64, 134); g.lineTo(72, 129); g.moveTo(66, 138); g.lineTo(73, 134); });
   }
   if (crit) {
-    g.fillStyle = 'rgba(40,30,40,0.25)';
-    for (const [x, y, r] of [[64, 120, 10], [140, 140, 8], [90, 150, 6]]) { g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill(); }
-    g.strokeStyle = '#c8102e'; g.lineWidth = 3.4; g.lineCap = 'round';
-    g.beginPath(); g.moveTo(70, 72); g.quadraticCurveTo(66, 92, 70, 104); g.stroke();
-    g.fillStyle = '#c8102e'; g.beginPath(); g.arc(70, 106, 2.6, 0, Math.PI * 2); g.fill();
-    sweat(g, 44, 96, 0.8);
+    g.fillStyle = 'rgba(40,30,40,0.22)';
+    for (const [x, y, r] of [[64, 118, 10], [138, 140, 8], [90, 154, 6]]) { g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill(); }
+    g.strokeStyle = '#a3122a'; g.lineWidth = 3; g.lineCap = 'round';
+    g.beginPath(); g.moveTo(70, 70); g.quadraticCurveTo(66, 90, 70, 102); g.stroke();
+    g.beginPath(); g.moveTo(110, 150); g.lineTo(112, 160); g.stroke();
+    g.fillStyle = '#a3122a'; g.beginPath(); g.arc(70, 104, 2.4, 0, Math.PI * 2); g.fill();
+    sweat(g, 46, 94, 0.75);
   }
 
-  // front hair
   const front = HAIR_FRONT[P.style];
-  front(g, P, hairDark);
+  front(g, P);
 
-  // accessories
   for (const a of P.acc) if (ACCESSORY[a]) ACCESSORY[a](g, P, crit);
-  if (P.acc.includes('bandaid') || (crit && !P.acc.includes('bandage'))) bandaid(g, crit && !P.acc.includes('bandaid') ? 128 : 100, crit && !P.acc.includes('bandaid') ? 134 : 116);
+  if (P.acc.includes('bandaid') || (crit && !P.acc.includes('bandage'))) bandaid(g, crit && !P.acc.includes('bandaid') ? 128 : 101, crit && !P.acc.includes('bandaid') ? 134 : 117);
+}
+
+// a whisper of film grain and a warm cel tint over the finished portrait
+function celFinish(c) {
+  const g = c.getContext('2d');
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.globalCompositeOperation = 'source-atop';
+  g.fillStyle = 'rgba(255,196,150,0.07)'; g.fillRect(0, 0, c.width, c.height);
+  try {
+    const d = g.getImageData(0, 0, c.width, c.height), a = d.data;
+    for (let i = 0; i < a.length; i += 4) { if (!a[i + 3]) continue; const n = (Math.random() - 0.5) * 14; a[i] += n; a[i + 1] += n; a[i + 2] += n; }
+    g.putImageData(d, 0, 0);
+  } catch (e) { /* tainted or unsupported: skip the grain */ }
+  g.globalCompositeOperation = 'source-over';
 }
 
 function sweat(g, x, y, s) {
   g.beginPath(); g.moveTo(x, y - 9 * s); g.quadraticCurveTo(x + 7 * s, y + 4 * s, x, y + 6 * s); g.quadraticCurveTo(x - 7 * s, y + 4 * s, x, y - 9 * s);
-  g.fillStyle = '#9ad7ff'; g.fill(); g.lineWidth = 1.5; g.strokeStyle = P_INK; g.stroke();
-  g.fillStyle = '#fff'; g.beginPath(); g.arc(x - 1.5 * s, y + 1 * s, 1.4 * s, 0, Math.PI * 2); g.fill();
+  g.fillStyle = '#a9d4ec'; g.fill(); g.lineWidth = 1.3; g.strokeStyle = P_INK; g.stroke();
+  g.fillStyle = '#fff'; g.beginPath(); g.arc(x - 1.5 * s, y + 1 * s, 1.3 * s, 0, Math.PI * 2); g.fill();
 }
 function bandaid(g, x, y) {
   g.save(); g.translate(x, y); g.rotate(-0.3);
-  g.fillStyle = '#f2c38f'; g.beginPath(); g.rect(-11, -4, 22, 8); g.fill(); g.lineWidth = 1.5; g.strokeStyle = P_INK; g.stroke();
-  g.fillStyle = '#e0a874'; g.fillRect(-4, -3, 8, 6);
+  g.fillStyle = '#e8bf92'; g.beginPath(); g.rect(-11, -4, 22, 8); g.fill(); g.lineWidth = 1.3; g.strokeStyle = P_INK; g.stroke();
+  g.fillStyle = '#d4a676'; g.fillRect(-4, -3, 8, 6);
   g.restore();
 }
 
-// anime eye: white, big glossy iris, slit-ish pupil, two highlights, heavy upper lash
+// almond eye: heavy upper lid, a crease above, an iris tucked under the lid, one sharp highlight
 function drawEye(g, x, y, P, side, state) {
-  const k = state === 'squint' ? 0.32 : state === 'fierce' ? 0.72 : 1;
-  const ry = (P.f ? 12 : 10) * k, rx = 13.5;
-  g.save();
-  g.beginPath(); g.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2);
-  g.fillStyle = '#fffaf0'; g.fill();
-  g.clip();
-  const ir = state === 'fierce' ? 7 : 8.6;
-  g.fillStyle = P.eye; g.beginPath(); g.ellipse(x + side * 1, y + 1, ir, 11.5, 0, 0, Math.PI * 2); g.fill();
-  g.fillStyle = pShade(P.eye, 0.45); g.beginPath(); g.ellipse(x + side * 1, y + 6, ir * 0.7, 4, 0, 0, Math.PI * 2); g.fill();   // glossy lower iris
-  g.fillStyle = 'rgba(20,16,31,0.4)'; g.fillRect(x - 12, y - 14, 24, 7);
-  g.fillStyle = P_INK; g.beginPath(); g.ellipse(x + side * 1, y + 1, state === 'fierce' ? 2.2 : 3.8, 5.8, 0, 0, Math.PI * 2); g.fill();
-  g.fillStyle = '#fff'; g.beginPath(); g.ellipse(x - 3, y - 3.5, 3.2, 2.6, -0.4, 0, Math.PI * 2); g.fill();
-  g.beginPath(); g.arc(x + 3.5, y + 4.5, 1.4, 0, Math.PI * 2); g.fill();
+  if (state === 'shut') {                        // squeezed shut in pain
+    pInk(g, 2.8, () => { g.moveTo(x - 13, y - 1); g.quadraticCurveTo(x, y + 4, x + 13, y - 2); });
+    pInk(g, 1.4, () => { g.moveTo(x - 9, y - 6); g.lineTo(x + 9, y - 8); });
+    return;
+  }
+  const k = state === 'fierce' ? 0.7 : 1, ry = (P.f ? 8 : 6.5) * k, o = side * 1.5;
+  const almond = () => {
+    g.beginPath(); g.moveTo(x - 14, y + 1);
+    g.quadraticCurveTo(x - 3 + o, y - ry * 1.5, x + 14, y - 2);
+    g.quadraticCurveTo(x + 2 + o, y + ry * 1.05, x - 14, y + 1);
+    g.closePath();
+  };
+  g.save(); almond(); g.fillStyle = '#f7f1e6'; g.fill(); g.clip();
+  const ir = state === 'fierce' ? 5.6 : P.f ? 7.2 : 6.4;
+  g.fillStyle = P.eye; g.beginPath(); g.arc(x + o, y - 1.5, ir, 0, Math.PI * 2); g.fill();
+  g.fillStyle = pShade(P.eye, -0.45); g.fillRect(x - 14, y - ry * 1.6, 28, ry * 0.9);           // the lid's shadow on the iris
+  g.fillStyle = P_INK; g.beginPath(); g.arc(x + o, y - 1, state === 'fierce' ? 1.8 : 2.6, 0, Math.PI * 2); g.fill();
+  g.fillStyle = '#fff'; g.fillRect(x + o - 4, y - 5, 2.6, 2.6);                                  // one sharp highlight
   g.restore();
-  // upper lash line and lower lid
-  pInk(g, P.f ? 4.6 : 3.8, () => { g.moveTo(x - rx - 1.5, y + 2); g.quadraticCurveTo(x, y - ry * 1.5, x + rx + 1.5, y - 1); });
-  if (P.f) pInk(g, 3.2, () => { const ox = x + side * (rx + 1); g.moveTo(ox, y - 1); g.lineTo(ox + side * 6, y - 7); });
-  pInk(g, 1.5, () => { g.moveTo(x - 8, y + ry + 1); g.quadraticCurveTo(x, y + ry + 2.5, x + 8, y + ry + 1); });
+  // heavy upper lid that runs past the outer corner, lighter lower lid, and the crease
+  pInk(g, P.f ? 3.4 : 3, () => { g.moveTo(x - 15, y + 1.5); g.quadraticCurveTo(x - 3 + o, y - ry * 1.62, x + side * 0 + 15, y - 2.5); g.lineTo(x + side * 16 + (side > 0 ? 2 : -2), y - 4); });
+  if (P.f) pInk(g, 1.8, () => { const ox = x + side * 15; g.moveTo(ox, y - 3); g.lineTo(ox + side * 4, y - 7); g.moveTo(ox - side * 4, y - ry - 1); g.lineTo(ox - side * 1, y - ry - 5); });
+  pInk(g, 1.1, () => { g.moveTo(x + side * -2, y + ry * 0.95); g.quadraticCurveTo(x + side * 6, y + ry * 0.8, x + side * 12, y + 1); });
+  pInk(g, 1.1, () => { g.moveTo(x - 9, y - ry * 1.55 - 3); g.quadraticCurveTo(x + o, y - ry * 1.95 - 3, x + 10, y - ry * 1.3 - 3); });
 }
 
 function drawMouth(g, P, mood) {
-  const y = 140;
+  const y = 146;
   const ink = (lw, fn) => pInk(g, lw, fn);
-  if (mood === 'crit') {                      // gritted teeth
-    g.beginPath(); g.moveTo(86, y - 4); g.quadraticCurveTo(100, y - 7, 114, y - 4); g.lineTo(112, y + 5); g.quadraticCurveTo(100, y + 8, 88, y + 5); g.closePath();
-    g.fillStyle = '#fffaf0'; g.fill(); g.lineWidth = 2.4; g.strokeStyle = P_INK; g.stroke();
-    ink(1.3, () => { g.moveTo(87, y + 0.5); g.lineTo(113, y + 0.5); for (const x of [93, 100, 107]) { g.moveTo(x, y - 5); g.lineTo(x, y + 6); } });
+  if (mood === 'crit') {                      // teeth gritted
+    g.beginPath(); g.moveTo(88, y - 3); g.lineTo(112, y - 4); g.lineTo(110, y + 4); g.lineTo(90, y + 4); g.closePath();
+    g.fillStyle = '#f2ece0'; g.fill(); g.lineWidth = 1.8; g.strokeStyle = P_INK; g.stroke();
+    ink(1, () => { g.moveTo(89, y); g.lineTo(111, y); for (const x of [95, 101, 107]) { g.moveTo(x, y - 4); g.lineTo(x, y + 4); } });
     return;
   }
-  if (mood === 'hurt') {                      // pained grimace
-    g.beginPath(); g.moveTo(90, y); g.quadraticCurveTo(100, y - 4, 110, y + 1); g.quadraticCurveTo(100, y + 7, 90, y);
-    g.fillStyle = '#5a1020'; g.fill(); g.lineWidth = 2.2; g.strokeStyle = P_INK; g.stroke();
+  if (mood === 'hurt') {                      // a clenched, lopsided grimace
+    g.beginPath(); g.moveTo(90, y + 1); g.lineTo(110, y - 2); g.lineTo(108, y + 3); g.lineTo(96, y + 4); g.closePath();
+    g.fillStyle = '#4a1420'; g.fill(); g.lineWidth = 1.6; g.strokeStyle = P_INK; g.stroke();
+    g.fillStyle = '#f2ece0'; g.fillRect(100, y - 1, 7, 2.5);
     return;
   }
   switch (P.mouth) {
-    case 'grin': case 'manic': {
-      const w = P.mouth === 'manic' ? 17 : 12, d = P.mouth === 'manic' ? 13 : 9;
-      g.beginPath(); g.moveTo(100 - w, y - 3); g.quadraticCurveTo(100, y + 1, 100 + w, y - 3); g.quadraticCurveTo(100, y + d * 1.4, 100 - w, y - 3); g.closePath();
-      g.fillStyle = '#7a1830'; g.fill();
-      g.save(); g.clip(); g.fillStyle = '#fffaf0'; g.fillRect(80, y - 6, 40, 6);
-      if (P.mouth === 'manic') { g.fillStyle = '#ff7a9a'; g.beginPath(); g.ellipse(103, y + d * 0.9, 7, 5, 0, 0, Math.PI * 2); g.fill(); }
-      g.restore();
-      g.lineWidth = 2.4; g.strokeStyle = P_INK; g.stroke();
+    case 'manic': {
+      g.beginPath(); g.moveTo(84, y - 4); g.quadraticCurveTo(100, y, 116, y - 5); g.quadraticCurveTo(102, y + 15, 84, y - 4); g.closePath();
+      g.fillStyle = '#5e1424'; g.fill();
+      g.save(); g.clip(); g.fillStyle = '#f2ece0'; g.fillRect(80, y - 8, 40, 7); g.restore();
+      g.lineWidth = 1.8; g.strokeStyle = P_INK; g.stroke();
       break;
     }
-    case 'smirk': ink(2.6, () => { g.moveTo(90, y + 1); g.quadraticCurveTo(102, y + 4, 112, y - 4); }); break;
-    case 'flat': ink(2.6, () => { g.moveTo(92, y + 1); g.quadraticCurveTo(100, y, 108, y + 1); }); break;
-    default: ink(2.6, () => { g.moveTo(91, y - 1); g.quadraticCurveTo(100, y + 5, 109, y - 1); });
+    case 'grin': ink(1.9, () => { g.moveTo(89, y - 1); g.quadraticCurveTo(100, y + 5, 112, y - 3); g.moveTo(112, y - 3); g.lineTo(114, y - 5); }); break;
+    case 'smirk': ink(1.9, () => { g.moveTo(92, y + 1); g.quadraticCurveTo(104, y + 2, 112, y - 4); }); break;
+    case 'flat': ink(1.9, () => { g.moveTo(92, y); g.lineTo(108, y); }); break;
+    default: ink(1.8, () => { g.moveTo(93, y - 1); g.quadraticCurveTo(100, y + 3, 108, y - 1); });
   }
+  g.fillStyle = celShadow(P.skin); g.beginPath(); g.ellipse(100, y + 7, 5, 1.6, 0, 0, Math.PI * 2); g.fill();   // soft lower-lip shadow
 }
 
 // --------------------------------------------------------------------------
-// Hair. Back layers sit behind the head; front layers are a cap + bangs.
+// Hair: chunky locks with dark separations and a sharp highlight band
 // --------------------------------------------------------------------------
+// glossy highlight: separate angled slivers following the curve of the head (lit from the upper left)
 function hairShine(g, P, x, y, w) {
-  g.save(); g.globalAlpha = 0.5; g.strokeStyle = pShade(P.hair, 0.55); g.lineWidth = 3.5;
-  g.beginPath(); g.arc(x, y + 40, w, Math.PI * 1.22, Math.PI * 1.5); g.stroke();
-  g.restore();
+  if (P_SHADOW) return;
+  g.fillStyle = pShade(P.hair, 0.3);
+  const cy = y + 46, r = w + 8;
+  for (let i = 0; i < 5; i++) {
+    const a = Math.PI * (1.18 + i * 0.1), len = i === 1 || i === 2 ? 12 : 8;
+    const px = x + Math.cos(a) * r, py = cy + Math.sin(a) * r, tx = Math.cos(a + Math.PI / 2), ty = Math.sin(a + Math.PI / 2);
+    g.beginPath();
+    g.moveTo(px - tx * 2, py - ty * 2); g.lineTo(px + tx * 2.5, py + ty * 2.5);
+    g.lineTo(px + tx * 1 + Math.cos(a) * -len, py + ty * 1 + Math.sin(a) * -len);
+    g.closePath(); g.fill();
+    g.beginPath(); g.moveTo(px - tx * 2, py - ty * 2); g.lineTo(px + tx * 2.5, py + ty * 2.5);
+    g.lineTo(px + Math.cos(a) * len * 0.8, py + Math.sin(a) * len * 0.8); g.closePath(); g.fill();
+  }
 }
 function cap(g, P, edge, top) {
   const t = top === undefined ? 18 : top;
-  pCel(g, () => {
-    g.beginPath(); g.moveTo(48, 104); g.lineTo(45, 62); g.bezierCurveTo(50, t, 150, t, 155, 62); g.lineTo(152, 104);
+  // the outline: pointed locks over the cheeks, then a chunky, lock-by-lock crown
+  const ry = 64 - t, N = 16;
+  const build = () => {
+    g.beginPath(); g.moveTo(55, 98); g.lineTo(43, 128); g.lineTo(44, 70);
+    for (let i = 1; i < N; i++) {
+      const th = Math.PI + (i / N) * Math.PI, k = i % 2 ? 1.07 : 0.99;
+      g.lineTo(100 + Math.cos(th) * 57 * k, 68 + Math.sin(th) * ry * k);
+    }
+    g.lineTo(156, 70); g.lineTo(157, 128); g.lineTo(145, 98);
     for (let i = 0; i < edge.length; i += 2) g.lineTo(edge[i], edge[i + 1]);
     g.closePath();
-  }, P.hair, 3, 116);
-  hairShine(g, P, 98, 26, 34);
+  };
+  pCel(g, build, P.hair, 3, 118);
+  if (P_SHADOW) return;
+  g.save(); build(); g.clip();
+  g.fillStyle = pShade(P.hair, -0.4);                           // lock separations
+  for (let i = 0; i < edge.length; i += 4) {
+    const x = edge[i], y = edge[i + 1], cx = 100 + (x - 100) * 0.3;
+    g.beginPath(); g.moveTo(cx - 2, t + 10); g.lineTo(x, y); g.lineTo(cx + 3.5, t + 14); g.closePath(); g.fill();
+  }
+  hairShine(g, P, 100, t + 22, 40);
+  g.restore();
+  build(); g.lineWidth = 2.2; g.strokeStyle = P_INK; g.stroke();
 }
 const HAIR_BACK = {
   long:     (g, P) => pCel(g, () => { g.beginPath(); g.moveTo(48, 60); g.bezierCurveTo(30, 120, 28, 180, 34, 214); g.lineTo(166, 214); g.bezierCurveTo(172, 180, 170, 120, 152, 60); g.closePath(); }, pShade(P.hair, -0.12), 3, 130),
@@ -290,8 +359,10 @@ const HAIR_FRONT = {
   ponytail: (g, P) => { cap(g, P, [152, 112, 144, 100, 128, 88, 110, 80, 90, 76, 70, 74, 52, 80]); },
   neat:     (g, P) => { cap(g, P, [152, 96, 146, 80, 128, 74, 100, 76, 80, 84, 64, 98, 52, 104]); pInk(g, 1.8, () => { g.moveTo(80, 30); g.quadraticCurveTo(90, 50, 96, 76); }); },
   undercut: (g, P) => {
-    g.fillStyle = pShade(P.hair, -0.45); g.globalAlpha = 0.55;
-    g.beginPath(); g.moveTo(50, 100); g.lineTo(47, 64); g.quadraticCurveTo(56, 42, 80, 34); g.lineTo(86, 60); g.closePath(); g.fill(); g.globalAlpha = 1;
+    if (!P_SHADOW) {
+      g.fillStyle = pShade(P.hair, -0.45); g.globalAlpha = 0.55;
+      g.beginPath(); g.moveTo(50, 100); g.lineTo(47, 64); g.quadraticCurveTo(56, 42, 80, 34); g.lineTo(86, 60); g.closePath(); g.fill(); g.globalAlpha = 1;
+    }
     pCel(g, () => { g.beginPath(); g.moveTo(80, 32); g.bezierCurveTo(120, 10, 162, 30, 156, 70); g.lineTo(154, 128); g.lineTo(140, 112); g.lineTo(132, 92); g.lineTo(114, 84); g.lineTo(96, 78); g.lineTo(80, 70); g.lineTo(70, 60); g.closePath(); }, P.hair, 3, 130);
     hairShine(g, P, 118, 20, 30);
   },
