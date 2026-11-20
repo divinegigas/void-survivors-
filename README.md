@@ -7,7 +7,6 @@ A vertical space shooter for Android: your ship fires on its own, enemies come d
 and shoot back, and every kill drops green XP crystals you have to fly over. Level up and pick an
 upgrade. Kills pay credits to spend in the Hangar between runs.
 
-This is separate from Neon Cable 42. It lives in its own folder and its own branch.
 
 ## Files
 - `www/game.js` is the game rules. The **TUNING** block at the top holds the numbers to tweak.
@@ -21,7 +20,7 @@ This is separate from Neon Cable 42. It lives in its own folder and its own bran
 
 ## Install it on your Android phone
 Every time the game changes on this branch, GitHub builds the app by itself
-(see `.github/workflows/starburn-android.yml`).
+(see `.github/workflows/android.yml`).
 1. On your phone, open the repository on GitHub → **Releases** → **Void Survivors (latest build)**.
 2. Tap **void-survivors.apk** to download it, then open the download.
 3. The first time, Android asks to allow installs from your browser: allow it, then tap **Install**.

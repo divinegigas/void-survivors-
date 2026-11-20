@@ -1,0 +1,63 @@
+# Builds the Void Survivors Android app (APK) whenever the game changes on its branch,
+# and puts it on the repository's Releases page as "Void Survivors (latest build)".
+name: Void Survivors Android app
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: starburn-android
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Install Capacitor
+        run: npm ci
+
+      - name: Copy the game into the Android project
+        run: npx cap sync android
+
+      - name: Build the APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Name the APK
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk void-survivors.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: void-survivors-apk
+          path: void-survivors.apk
+
+      - name: Publish to Releases as "Void Survivors (latest build)"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest void-survivors.apk \
+            --prerelease \
+            --target "${{ github.sha }}" \
+            --title "Void Survivors (latest build #${{ github.run_number }})" \
+            --notes "Tap **void-survivors.apk** below to download, then open it to install. Builds install over the previous one and keep your progress."
