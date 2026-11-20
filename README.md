@@ -14,8 +14,8 @@ This is separate from Neon Cable 42. It lives in its own folder and its own bran
 - `www/art.js` is everything you see: the pop-art comic style, menus, and the main loop.
 - `www/pilots.js` holds the 12 pilots (one per ship): names, lines, and their portraits, drawn in code
   with three expressions each (normal, hurt, critical).
-- `www/audio.js` is everything you hear, synthesized live (no sound files): the Level 1 track
-  "Hive Surf" (surf rock + 90s-shooter metal + a dash of dubstep, all original) and the sound effects.
+- `www/audio.js` is everything you hear, synthesized live (no sound files, all original): one track per
+  stage ("Hive Surf", "Warp Rider", "Abyssal Drift", "Heart of the Beast", "Seraph") and the sound effects.
 - `www/index.html` + `www/game.css` are the page the Android app will load.
 - `artifact.html` is the same game wrapped for the shareable claude.ai link.
 
@@ -58,4 +58,8 @@ Open `www/index.html` in a browser. Arrow keys or WASD move, 1/2/3 pick an upgra
 7. **Pilots + style** (done): 12 anime pilots (7 women, 5 men) with 3 expressions each, ship wheel in the
    Hangar, pilot face in the HUD, Persona-style animated menus, dramatic ultimate cut-in, new name.
 8. **Real Android app** (done): Capacitor wrapper, APK built by GitHub Actions and posted to Releases.
-9. **More content**: more levels, more bosses and enemy patterns, weapon evolutions.
+9. **Five stages** (done): stage select; Hive Fleet, Warp Zone, The Deep, Inside the Leviathan and
+   the Prismatic Void, each 15 minutes with 3 mini-bosses, its own final boss (Hive Queen, Warp Wyrm,
+   Abyssal Maw, Leviathan Heart, Seraph of the Void), look and music. Slots grow per stage (2+2 up to
+   4+4), each stage is harder (`CFG.stageScale`), and the XP curve is gentler.
+10. **More content**: weapon evolutions, more enemy types, endless mode.

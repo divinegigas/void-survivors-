@@ -23,7 +23,7 @@ const CFG = {
     handling: 1100,           // how fast (units/s) a ship can chase your finger; each ship multiplies this
   },
 
-  slots: { weapons: 4, passives: 4 },
+  // loadout slots come from the stage (STAGES[n].slots): 2+2 on stage 1, growing to 4+4 by stage 5
   ultLevel: 10,               // level that offers a choice of ultimate (double-tap to fire)
   ultCooldownMul: 1,          // 0.5 = ultimates recharge twice as fast
   ultCutin: 1.8,              // seconds the game freezes for the ultimate's splash screen (0 = no splash)
@@ -39,8 +39,8 @@ const CFG = {
     orbFallSpeed: 55,         // crystals drift down; miss them and they're gone
     pullSpeed: 440,           // how fast crystals fly to you once inside the magnet
     needBase: 6,              // XP for level 2
-    needPerLevel: 4,          // extra XP needed per level
-    needCurve: 0.5,           // extra XP that grows with level squared
+    needPerLevel: 3,          // extra XP needed per level
+    needCurve: 0.35,          // extra XP that grows with level squared
   },
 
   spawn: {
@@ -51,8 +51,18 @@ const CFG = {
     duringBossMul: 2.5,       // fewer small enemies while a boss is up
   },
 
+  stageScale: {               // how much harder each stage after the first gets
+    enemyHp: 0.15,            // +15% starting enemy health per stage (kept low: every run starts at level 1)...
+    hpGrowth: 0.2,            // ...but enemy health climbs 20% faster during the run per stage
+    bossHp: 0.3,              // +30% mini-boss health per stage
+    finalHp: 0.35,            // +35% final-boss health per stage
+    bulletSpeed: 0.07,        // +7% enemy bullet speed per stage
+    spawn: 0.1,               // 10% shorter gaps between enemy waves per stage
+    fire: 0.15,               // enemies fire 15% more often per stage
+    credits: 0.5,             // +50% bounty per stage
+  },
   level: {
-    length: 900,              // 15:00: the clock stops and the Hive Queen arrives
+    length: 900,              // 15:00: the clock stops and the final boss arrives
     miniBosses: [225, 450, 675],  // 3:45 Brood Brute, 7:30 Spore Mother, 11:15 Scythe Wraith
     warnTime: 3,              // seconds of WARNING before each boss
   },
@@ -114,6 +124,7 @@ function loadMeta() {
   m.ship = m.ship || 'vesper';
   m.ships = m.ships || { vesper: true };
   m.shipLv = m.shipLv || {};       // Hangar upgrade levels, per ship
+  m.unlocked = m.unlocked || (m.clears ? 2 : 1);   // highest stage you can pick
   if (m.lv.shield) {          // the old cheap "Launch Shield" is gone: refund what was spent on it
     for (let k = 0; k < m.lv.shield; k++) m.bank += Math.round(40 * Math.pow(1.8, k));
     delete m.lv.shield;
@@ -595,7 +606,7 @@ function xpNeed(level) {
   return Math.round(CFG.xp.needBase + CFG.xp.needPerLevel * l + CFG.xp.needCurve * l * l);
 }
 
-function newGame(state) {
+function newGame(state, stage) {
   if (state !== 'play') music('stop');
   if (state && state !== 'title' && META.notice) { META.notice = null; saveMeta(); }   // one-time message seen
   S = {
@@ -610,7 +621,9 @@ function newGame(state) {
     spawnT: CFG.spawn.graceTime, ev: 0, warned: false, warn: 0, warnName: '', queenUp: false, victoryT: 0,
     pending: 0, choices: null, choiceLevel: 0, uiLock: 0, uiPress: null, flash: null,
     rerolls: ML('reroll'), revives: ML('revive'),
+    stage: clamp(stage || META.lastStage || 1, 1, STAGE_COUNT), intro: 0, fireMul: 1,
   };
+  S.fireMul = 1 + CFG.stageScale.fire * stageD();
   recalcMods();
   S.p.hp = S.p.maxHp;
   S.p.bubble = ML('deflector') > 0;
@@ -623,7 +636,33 @@ function newGame(state) {
 // ============================================================================
 // Enemies
 // ============================================================================
-// The hive fleet. r = hit size (20% bigger than before). Bosses don't leave the screen.
+// ============================================================================
+// Stages. Each: 15 minutes, 3 mini-bosses (same brains, new skins), its own
+// final boss, music, look, enemy colours, wave mix and loadout slots.
+// ============================================================================
+const STAGES = [null,
+  { name: 'HIVE FLEET', sub: 'Break through the swarm', music: 'level1', final: 'queen', slots: [2, 2],
+    minis: { brute: ['BROOD BRUTE', '#6d3a8f'], mother: ['SPORE MOTHER', '#62b39a'], stalker: ['SCYTHE WRAITH', '#d8ccb4'] },
+    tint: {}, waves: { single: 3, line: 3, snake: 2, divers: 1.5, gunner: 1.2 } },
+  { name: 'WARP ZONE', sub: 'Reality bends at lightspeed', music: 'level2', final: 'wyrm', slots: [3, 2],
+    minis: { brute: ['PHASE BRUTE', '#5b6bd6'], mother: ['FLUX MOTHER', '#c86bff'], stalker: ['RIFT WRAITH', '#9be8ff'] },
+    tint: { drone: '#7de0ff', weaver: '#c86bff', diver: '#ff5df0', gunner: '#5d9dff' }, waves: { single: 2, line: 3, snake: 2, divers: 3, gunner: 1.3 } },
+  { name: 'THE DEEP', sub: 'Something ancient is waiting below', music: 'level3', final: 'maw', slots: [3, 3],
+    minis: { brute: ['REEF CRUSHER', '#3f8f8a'], mother: ['SIREN SAC', '#9fd6c8'], stalker: ['DEEP REAPER', '#c8d0e0'] },
+    tint: { drone: '#7fd6c2', weaver: '#4fb3a0', diver: '#e8a0c8', gunner: '#7aa0d6' }, waves: { single: 2, line: 2, snake: 4, divers: 1.5, gunner: 1.6 } },
+  { name: 'INSIDE THE LEVIATHAN', sub: 'Fly down its throat. Stop its heart.', music: 'level4', final: 'heart', slots: [4, 3],
+    minis: { brute: ['BILE TICK', '#8a2a3a'], mother: ['POLYP MOTHER', '#d47a8a'], stalker: ['MARROW WRAITH', '#e8d8c0'] },
+    tint: { drone: '#e88a8a', weaver: '#c2405a', diver: '#d86a9a', gunner: '#e0b060' }, waves: { single: 4, line: 3, snake: 2, divers: 2, gunner: 2 } },
+  { name: 'PRISMATIC VOID', sub: 'Beyond reality. Something divine and wrong.', music: 'level5', final: 'seraph', slots: [4, 4],
+    minis: { brute: ['PRISM BRUTE', '#a88aff'], mother: ['HALO MOTHER', '#ffd0f0'], stalker: ['MIRROR WRAITH', '#e0f0ff'] },
+    tint: { drone: '#b8a8ff', weaver: '#ff9ae0', diver: '#8affe0', gunner: '#ffe08a' }, waves: { single: 3, line: 3, snake: 3, divers: 3, gunner: 2 } },
+];
+const STAGE_COUNT = STAGES.length - 1;
+const stageDef = () => STAGES[(S && S.stage) || 1];
+const stageD = () => ((S && S.stage) || 1) - 1;                 // 0 on stage 1 ... 4 on stage 5
+const slotCount = () => { const sl = stageDef().slots; return { weapons: sl[0], passives: sl[1] }; };
+
+// The enemies. r = hit size. Bosses don't leave the screen.
 const ENEMY = {
   drone:   { name: 'Larva',          hp: 20,   r: 14, xp: 1,  credits: 1,   color: '#eaa0ad', blood: 'G' },
   weaver:  { name: 'Lamprey',        hp: 14,   r: 13, xp: 1,  credits: 1,   color: '#e2607f', blood: 'P' },
@@ -632,19 +671,28 @@ const ENEMY = {
   brute:   { name: 'BROOD BRUTE',    hp: 2200, r: 44, xp: 25, credits: 40,  color: '#6d3a8f', blood: 'P', boss: true },
   mother:  { name: 'SPORE MOTHER',   hp: 3600, r: 48, xp: 30, credits: 60,  color: '#62b39a', blood: 'G', boss: true },
   stalker: { name: 'SCYTHE WRAITH',  hp: 5200, r: 42, xp: 35, credits: 80,  color: '#d8ccb4', blood: 'P', boss: true },
-  queen:   { name: 'HIVE QUEEN',     hp: 11000, r: 66, xp: 0,  credits: 300, color: '#b0203a', blood: 'PG', boss: true },
+  queen:   { name: 'HIVE QUEEN',     hp: 11000, r: 66, xp: 0,  credits: 300, color: '#b0203a', blood: 'PG', boss: true, final: true },
+  wyrm:    { name: 'WARP WYRM',      hp: 9000,  r: 40, xp: 0,  credits: 300, color: '#7a3cff', blood: 'P',  boss: true, final: true },
+  maw:     { name: 'ABYSSAL MAW',    hp: 10000, r: 56, xp: 0,  credits: 300, color: '#2f6f7a', blood: 'G',  boss: true, final: true },
+  heart:   { name: 'LEVIATHAN HEART', hp: 10000, r: 60, xp: 0, credits: 300, color: '#c2283e', blood: 'P',  boss: true, final: true },
+  seraph:  { name: 'SERAPH OF THE VOID', hp: 12000, r: 58, xp: 0, credits: 500, color: '#f3ead2', blood: 'PG', boss: true, final: true },
 };
 const BLOOD = { P: '#9b3fd6', G: '#c4cf1f' };      // purple ichor and acid-yellow-green bile (kept away from the gem mint)
 const bloodOf = e => { const b = ENEMY[e.type].blood || 'G'; return BLOOD[b.length > 1 ? pick(b.split('')) : b]; };
 const LEVEL_EVENTS = () => [
   ...CFG.level.miniBosses.map((t, i) => ({ t, type: ['brute', 'mother', 'stalker'][i] })),
-  { t: CFG.level.length, type: 'queen' },
+  { t: CFG.level.length, type: stageDef().final },
 ];
+const enemyName = type => (stageDef().minis[type] || [ENEMY[type].name])[0];
 
 function spawnEnemy(type, x, y, extra) {
-  const d = ENEMY[type];
-  const hp = d.boss ? d.hp : d.hp * (1 + CFG.enemyHpGrowthPerMin * S.t / 60);   // bosses have fixed health
-  const e = Object.assign({ type, x, y, hp, maxHp: hp, r: d.r, xp: d.xp, credits: d.credits, color: d.color, boss: !!d.boss,
+  const d = ENEMY[type], st = stageDef(), k = stageD(), sc = CFG.stageScale;
+  const hp = d.final ? d.hp * (1 + sc.finalHp * k)                         // bosses have fixed health per stage
+           : d.boss ? d.hp * (1 + sc.bossHp * k)
+           : d.hp * (1 + CFG.enemyHpGrowthPerMin * (1 + sc.hpGrowth * k) * S.t / 60) * (1 + sc.enemyHp * k);
+  const mini = st.minis[type], color = mini ? mini[1] : st.tint[type] || d.color;
+  const e = Object.assign({ type, x, y, hp, maxHp: hp, r: d.r, xp: d.xp, credits: d.credits * (1 + sc.credits * k), color, boss: !!d.boss, final: !!d.final,
+                            name: mini ? mini[0] : d.name,
                             age: 0, flash: 0, mode: 0, fireT: rand(0.8, 2.0), vx: 0, vy: 0 }, extra);
   S.enemies.push(e);
   return e;
@@ -654,12 +702,13 @@ const bossAlive = () => S.enemies.some(e => e.boss && !e.dead);
 
 function spawnPattern() {
   const t = S.t;
+  const wv = stageDef().waves, early = S.stage > 1 ? 0.5 : 1;   // later stages bring the nasty stuff sooner
   const options = [
-    ['single', 3],
-    ['line', t > 10 ? 3 : 0],
-    ['snake', t > 20 ? 2 : 0],
-    ['divers', t > 45 ? 1.5 : 0],
-    ['gunner', t > 60 && countType('gunner') < 1 + Math.floor(t / 150) ? 1.2 : 0],
+    ['single', wv.single],
+    ['line', t > 10 * early ? wv.line : 0],
+    ['snake', t > 20 * early ? wv.snake : 0],
+    ['divers', t > 45 * early ? wv.divers : 0],
+    ['gunner', t > 60 * early && countType('gunner') < 1 + Math.floor(t / 150) + Math.floor(stageD() / 2) ? wv.gunner : 0],
   ];
   let total = 0;
   for (const o of options) total += o[1];
@@ -690,8 +739,9 @@ function spawnPattern() {
 }
 
 function spawnBoss(type) {
-  spawnEnemy(type, W / 2, -ENEMY[type].r - 20, { ty: type === 'queen' ? 150 : 125, sway: 0, spin: 0, shotT: 1.5,
-    spinT: 0.6, ringT: 2.5, spawnT: 3, patT: 4, phase: 1, volley: 0, ring: 0 });
+  spawnEnemy(type, W / 2, -ENEMY[type].r - 20, { ty: ENEMY[type].final ? 160 : 125, sway: 0, spin: 0, shotT: 1.5,
+    spinT: 0.6, ringT: 2.5, spawnT: 3, patT: 4, phase: 1, volley: 0, ring: 0, beatT: 1, beat: 0, warpT: 6, blink: 0,
+    laneT: 2, segT: 1.6, lureT: 5, lure: 0, jawT: 4, jaw: 0, featherT: 1, rainT: 0, trail: [] });
 }
 
 // --- Boss brains. All enter from the top first (mode 0).
@@ -790,11 +840,145 @@ function bossQueen(e, dt) {         // 15:00 · three phases, each angrier
     for (let i = 0; i < (phase === 3 ? 3 : 2); i++) spawnEnemy(kind, rand(40, W - 40), -20, kind === 'diver' ? { ty: rand(80, 200) } : { vy: 100 });
   }
 }
-const BOSS_BRAIN = { brute: bossBrute, mother: bossMother, stalker: bossStalker, queen: bossQueen };
+function phaseShift(e, phase, word, color) {          // shared drama when a boss gets angrier
+  if (phase === e.phase) return;
+  e.phase = phase;
+  burst(e.x, e.y + 40, 64, word, color || COL.red);
+  S.shake = 0.5; buzz(120);
+  for (const b of S.ebullets) b.dead = true;
+}
 
-function enemyShot(x, y, angle, speedMul) {
-  const sp = CFG.enemyBulletSpeed * Math.min(CFG.enemyBulletSpeedMax, 1 + S.t / 900) * (speedMul || 1);
-  S.ebullets.push({ x, y, vx: Math.cos(angle) * sp, vy: Math.sin(angle) * sp, r: 4 });
+// STAGE 2 · WARP WYRM: a serpent that swims a figure-eight, drops warp-lane curtains,
+// shoots from its body, and teleports (with a ring blast) when it reappears.
+function bossWyrm(e, dt) {
+  if (e.x > -500) { e.trail.unshift([e.x, e.y]); if (e.trail.length > 150) e.trail.pop(); }
+  if (bossEnter(e, dt)) return;
+  const phase = e.hp / e.maxHp > 0.5 ? 1 : 2;
+  phaseShift(e, phase, 'SKRRAAAH!', '#c86bff');
+  if (e.blink > 0) {                                           // mid-warp: gone from the battlefield
+    if ((e.blink -= dt) <= 0) {
+      e.x = rand(70, W - 70); e.y = rand(120, 230); e.trail = [];
+      burst(e.x, e.y, 54, 'VWORP!', '#c86bff');
+      for (let k = 0; k < 18; k++) enemyShot(e.x, e.y, (k / 18) * TAU, 0.8);
+    }
+    return;
+  }
+  e.sway += dt;
+  e.x += (W / 2 + Math.sin(e.sway * 0.9) * (W / 2 - 70) - e.x) * Math.min(1, dt * 2);
+  e.y += (175 + Math.sin(e.sway * 1.8) * 55 - e.y) * Math.min(1, dt * 2);
+  if ((e.warpT -= dt) <= 0) { e.warpT = phase === 1 ? 7 : 5; e.blink = 0.7; e.x = -999; e.y = -999; return; }
+  if ((e.laneT -= dt) <= 0) {                                  // a curtain with gaps to slip through
+    e.laneT = phase === 1 ? 3.2 : 2.4;
+    const gap = rand(50, W - 50), slant = phase === 2 && e.volley++ % 2 ? rand(-0.35, 0.35) : 0;
+    for (let x = 12; x < W; x += 20) if (Math.abs(x - gap) > 34) enemyShot(x, -6, Math.PI / 2 + slant, 0.7);
+  }
+  if ((e.segT -= dt) <= 0) {                                   // every few body segments spit at you
+    e.segT = phase === 1 ? 1.7 : 1.1;
+    for (let i = 14; i < e.trail.length; i += 22) { const [x, y] = e.trail[i]; enemyShot(x, y, Math.atan2(S.p.y - y, S.p.x - x), 0.9); }
+  }
+}
+
+// STAGE 3 · ABYSSAL MAW: an anglerfish horror. Wobbling bubble volleys, a lure that
+// flashes then fires a beam of shots at you, and a ring of teeth when the jaw opens.
+function bossMaw(e, dt) {
+  if (bossEnter(e, dt)) return;
+  const phase = e.hp / e.maxHp > 0.5 ? 1 : 2;
+  phaseShift(e, phase, 'GRRRLLBLUB!', '#2f6f7a');
+  e.sway += dt;
+  e.x = W / 2 + Math.sin(e.sway * 0.35) * (W / 2 - 90);
+  e.y = e.ty + Math.sin(e.sway * 0.9) * 10;
+  e.jaw = Math.max(0, e.jaw - dt * 1.5);
+  if ((e.shotT -= dt) <= 0) {                                  // bubbles drift and sway
+    e.shotT = phase === 1 ? 1.4 : 1.0;
+    const n = phase === 1 ? 5 : 7;
+    for (let k = 0; k < n; k++) enemyShot(e.x + (k - (n - 1) / 2) * 14, e.y + 40, Math.PI / 2 + (k - (n - 1) / 2) * 0.22, 0.45, { r: 7, wob: 46, wf: 2.6 + k * 0.3 });
+  }
+  if (e.lure > 0) {                                            // the lure flashes, then fires its beam
+    e.lure -= dt;
+    if (e.lure < 0.5 && (e.spinT -= dt) <= 0) {
+      e.spinT = 0.035;
+      enemyShot(e.x + Math.sin(e.age * 2) * 26, e.y + 78, e.lureA, 1.45);
+    }
+  } else if ((e.lureT -= dt) <= 0) {
+    e.lureT = phase === 1 ? 6 : 4.5; e.lure = 1.5; e.spinT = 0;
+    e.lureA = Math.atan2(S.p.y - (e.y + 78), S.p.x - e.x);
+  }
+  if ((e.jawT -= dt) <= 0) {                                   // jaw snaps: a ring of teeth
+    e.jawT = phase === 1 ? 4.5 : 3.4; e.jaw = 1;
+    const n = 20, off = Math.random() * TAU;
+    for (let k = 0; k < n; k++) enemyShot(e.x, e.y + 30, off + (k / n) * TAU, 0.7);
+  }
+  if (phase === 2 && (e.spawnT -= dt) <= 0) {
+    e.spawnT = 6;
+    const bx = clamp(e.x, 80, W - 80);
+    for (let i = 0; i < 3; i++) spawnEnemy('weaver', bx, e.y - i * 28, { bx, ph: 0, amp: 70, vy: 120, fireT: rand(2, 4) });
+  }
+}
+
+// STAGE 4 · LEVIATHAN HEART: every heartbeat is a ring of shots; it beats faster
+// as it weakens; its arteries spray streams; it pumps out blood-cell larvae.
+function bossHeart(e, dt) {
+  if (bossEnter(e, dt)) return;
+  const f = e.hp / e.maxHp, phase = f > 0.66 ? 1 : f > 0.33 ? 2 : 3;
+  phaseShift(e, phase, phase === 2 ? 'THU-THUMP!' : 'BA-BOOM!!', '#c2283e');
+  e.sway += dt;
+  e.x = W / 2 + Math.sin(e.sway * 0.4) * (W / 2 - 110);
+  e.beat = Math.max(0, e.beat - dt * 3);
+  if ((e.beatT -= dt) <= 0) {
+    e.beatT = [0, 1.1, 0.85, 0.65][phase]; e.beat = 1; e.volley++;
+    const n = 12 + phase * 4, off = e.volley * 0.17;
+    for (let k = 0; k < n; k++) enemyShot(e.x, e.y + 10, off + (k / n) * TAU, 0.6);
+    if (e.volley % 3 === 0) { const a = aimAt(e); for (let k = -2; k <= 2; k++) enemyShot(e.x, e.y + 40, a + k * 0.12, 1.05); }
+    if (phase === 3 && e.volley % 2 === 0) for (let k = 0; k < n; k++) enemyShot(e.x, e.y + 10, off + ((k + 0.5) / n) * TAU, 0.9);
+  }
+  if (phase >= 2 && (e.spinT -= dt) <= 0) {                    // arteries spray
+    e.spinT = 0.11; e.spin += 0.3;
+    enemyShot(e.x - 40, e.y - 30, e.spin, 0.8); enemyShot(e.x + 40, e.y - 30, Math.PI - e.spin, 0.8);
+  }
+  if ((e.spawnT -= dt) <= 0) {
+    e.spawnT = phase === 3 ? 4.5 : 7;
+    for (let i = 0; i < 3; i++) spawnEnemy('drone', e.x + (i - 1) * 50, e.y + 50, { vy: 120, fireT: rand(1, 2) });
+  }
+}
+
+// STAGE 5 · SERAPH OF THE VOID: the final boss. Three phases, each a different nightmare:
+// feather fans and slow halos, then rotating prism beams, then everything at once.
+function bossSeraph(e, dt) {
+  if (bossEnter(e, dt)) return;
+  const f = e.hp / e.maxHp, phase = f > 0.66 ? 1 : f > 0.33 ? 2 : 3;
+  phaseShift(e, phase, phase === 2 ? 'KNEEL.' : 'I AM ENDLESS!', phase === 2 ? COL.gold : COL.red);
+  e.sway += dt;
+  e.x = W / 2 + Math.sin(e.sway * 0.3) * (W / 2 - 100);
+  e.y = e.ty + Math.sin(e.sway * 0.7) * 12;
+  if (phase === 1) {
+    if ((e.featherT -= dt) <= 0) {                             // feather fans: aimed, then wide
+      e.featherT = 1.2; e.volley++;
+      const a = aimAt(e), wide = e.volley % 2 === 0, n = wide ? 13 : 7, step = wide ? 0.2 : 0.09;
+      for (let k = 0; k < n; k++) enemyShot(e.x, e.y + 20, a + (k - (n - 1) / 2) * step, wide ? 0.7 : 1.05);
+    }
+    if ((e.ringT -= dt) <= 0) { e.ringT = 3; const n = 24, off = Math.random() * TAU; for (let k = 0; k < n; k++) enemyShot(e.x, e.y, off + (k / n) * TAU, 0.5); }
+  } else if (phase === 2) {
+    e.spin += dt * 0.45;                                       // four rotating prism beams
+    if ((e.spinT -= dt) <= 0) { e.spinT = 0.075; for (let k = 0; k < 4; k++) enemyShot(e.x, e.y, e.spin + (k * TAU) / 4, 1.2); }
+    if ((e.ringT -= dt) <= 0) { e.ringT = 2.4; const n = 20, off = Math.random() * TAU; for (let k = 0; k < n; k++) enemyShot(e.x, e.y, off + (k / n) * TAU, 0.6); }
+    if ((e.featherT -= dt) <= 0) { e.featherT = 2; const a = aimAt(e); for (let k = -2; k <= 2; k++) enemyShot(e.x, e.y + 20, a + k * 0.1, 1.15); }
+  } else {
+    e.spin += dt * 0.6;                                        // desperation: twin counter-spirals and a feather rain
+    if ((e.spinT -= dt) <= 0) {
+      e.spinT = 0.1;
+      for (let k = 0; k < 5; k++) { enemyShot(e.x, e.y, e.spin + (k * TAU) / 5, 0.75); enemyShot(e.x, e.y, -e.spin * 1.3 + (k * TAU) / 5, 0.6); }
+    }
+    if ((e.rainT -= dt) <= 0) { e.rainT = 0.16; enemyShot(rand(10, W - 10), -6, Math.PI / 2 + rand(-0.15, 0.15), 0.65); }
+    if ((e.featherT -= dt) <= 0) { e.featherT = 1.1; const a = aimAt(e); for (let k = -3; k <= 3; k++) enemyShot(e.x, e.y + 20, a + k * 0.08, 1.2); }
+  }
+}
+const BOSS_BRAIN = { brute: bossBrute, mother: bossMother, stalker: bossStalker, queen: bossQueen,
+                     wyrm: bossWyrm, maw: bossMaw, heart: bossHeart, seraph: bossSeraph };
+
+function enemyShot(x, y, angle, speedMul, extra) {
+  const sp = CFG.enemyBulletSpeed * Math.min(CFG.enemyBulletSpeedMax, 1 + S.t / 900) * (1 + CFG.stageScale.bulletSpeed * stageD()) * (speedMul || 1);
+  const b = { x, y, vx: Math.cos(angle) * sp, vy: Math.sin(angle) * sp, r: 4 };
+  S.ebullets.push(extra ? Object.assign(b, extra, { age: 0 }) : b);
 }
 function aimAt(e) { return Math.atan2(S.p.y - e.y, S.p.x - e.x); }
 
@@ -805,12 +989,12 @@ function updateEnemy(e, dt) {
   switch (e.type) {
     case 'drone':
       e.y += e.vy * dt;
-      if ((e.fireT -= dt) <= 0 && e.y > 10 && e.y < H * 0.65) { e.fireT = rand(1.6, 2.8); enemyShot(e.x, e.y + 8, aimAt(e) + rand(-0.08, 0.08)); }
+      if ((e.fireT -= dt * S.fireMul) <= 0 && e.y > 10 && e.y < H * 0.65) { e.fireT = rand(1.6, 2.8); enemyShot(e.x, e.y + 8, aimAt(e) + rand(-0.08, 0.08)); }
       break;
     case 'weaver':
       e.y += e.vy * dt;
       e.x = e.bx + Math.sin(e.age * 2.4 + e.ph) * e.amp;
-      if ((e.fireT -= dt) <= 0 && e.y > 10 && e.y < H * 0.6) { e.fireT = rand(2.5, 4); enemyShot(e.x, e.y + 8, Math.PI / 2); }
+      if ((e.fireT -= dt * S.fireMul) <= 0 && e.y > 10 && e.y < H * 0.6) { e.fireT = rand(2.5, 4); enemyShot(e.x, e.y + 8, Math.PI / 2); }
       break;
     case 'diver':
       if (e.mode === 0) { e.y += 140 * dt; if (e.y >= e.ty) { e.mode = 1; e.wait = 0.7; } }
@@ -824,7 +1008,7 @@ function updateEnemy(e, dt) {
         e.x += e.vx * dt;
         if (e.x < 30) { e.x = 30; e.vx = Math.abs(e.vx); }
         if (e.x > W - 30) { e.x = W - 30; e.vx = -Math.abs(e.vx); }
-        if ((e.fireT -= dt) <= 0) {
+        if ((e.fireT -= dt * S.fireMul) <= 0) {
           e.fireT = 2.2;
           const n = 10 + 2 * Math.floor(S.t / 120), off = Math.random() * TAU;
           for (let i = 0; i < n; i++) enemyShot(e.x, e.y, off + (i / n) * TAU, 0.8);
@@ -867,7 +1051,7 @@ function killEnemy(e) {
     S.shake = 0.6; buzz(200);
     S.novas.push({ x: e.x, y: e.y, r: 0, max: 140, dmg: 0, age: 0, hit: null, color: e.color });
     for (const b of S.ebullets) b.dead = true;   // boss down: clear the screen
-    if (e.type === 'queen') {                    // level clear! the rest of the swarm dies with her
+    if (e.final) {                               // stage clear! the rest of the swarm dies with it
       S.victoryT = 2.8; S.p.invuln = 99;
       for (const o of S.enemies) if (!o.dead && o !== e) killEnemy(o);
     }
@@ -961,7 +1145,7 @@ function burst(x, y, size, word, color, splat) {
 }
 function comicKill(e, big) {
   const blood = bloodOf(e), wet = Math.random() < 0.5;   // half the words are splats
-  if (big) burst(e.x, e.y, e.type === 'queen' ? 130 : 95, e.type === 'queen' ? 'KA-SPLAT!!' : wet ? 'SPLOOORCH!' : 'KA-BOOM!', wet ? blood : COL.gold, wet);
+  if (big) burst(e.x, e.y, e.final ? 130 : 95, e.final ? (e.type === 'seraph' ? 'SHATTER!!' : 'KA-SPLAT!!') : wet ? 'SPLOOORCH!' : 'KA-BOOM!', wet ? blood : COL.gold, wet);
   else if (e.type === 'gunner') burst(e.x, e.y, 46, wet ? pick(SPLATS_MED) : pick(WORDS_MED), wet ? blood : COL.gold, wet);
   else if (Math.random() < 0.18 && S.bursts.filter(b => b.word).length < 3) burst(e.x, e.y, 30, wet ? pick(SPLATS_SMALL) : pick(WORDS_SMALL), wet ? blood : COL.gold, wet);
   else burst(e.x, e.y, e.r * 1.4, null, blood, true);
@@ -1000,6 +1184,10 @@ function levelComplete() {
   gameOver(false);
   S.state = 'won';
   META.clears = (META.clears || 0) + 1;
+  META.unlocked = Math.min(STAGE_COUNT, Math.max(META.unlocked || 1, S.stage + 1));
+  META.cleared = META.cleared || {};
+  META.cleared[S.stage] = true;
+  if (S.stage === STAGE_COUNT) META.beatGame = true;
   saveMeta();
 }
 
@@ -1036,9 +1224,9 @@ function buildChoices() {
   const ups = [], newW = [], newP = [];
   for (const id in S.weapons) if (S.weapons[id].lvl < CFG.maxLevel) ups.push({ kind: 'wup', id });
   for (const id in S.passives) if (S.passives[id].lvl < passiveMax(id)) ups.push({ kind: 'pup', id });
-  if (slotWeapons().length < CFG.slots.weapons)
+  if (slotWeapons().length < slotCount().weapons)
     for (const id in WEAPONS) if (!S.weapons[id]) newW.push({ kind: 'wnew', id });
-  if (Object.keys(S.passives).length < CFG.slots.passives)
+  if (Object.keys(S.passives).length < slotCount().passives)
     for (const id in PASSIVES) if (!S.passives[id]) newP.push({ kind: 'pnew', id });
 
   const out = [];
@@ -1072,8 +1260,8 @@ function choiceInfo(c) {
   const isW = c.kind === 'wup' || c.kind === 'wnew';
   const d = isW ? WEAPONS[c.id] : PASSIVES[c.id], t = TIER[d.tier];
   const base = { title: d.name, glyph: d.glyph, color: t.color, icon: d.color, tier: t.name };
-  if (c.kind === 'wnew') return Object.assign(base, { desc: d.levels[0], tag: `NEW WEAPON · ${nW + 1}/${CFG.slots.weapons}` });
-  if (c.kind === 'pnew') return Object.assign(base, { desc: d.levels[0], tag: `NEW PASSIVE · ${nP + 1}/${CFG.slots.passives}` });
+  if (c.kind === 'wnew') return Object.assign(base, { desc: d.levels[0], tag: `NEW WEAPON · ${nW + 1}/${slotCount().weapons}` });
+  if (c.kind === 'pnew') return Object.assign(base, { desc: d.levels[0], tag: `NEW PASSIVE · ${nP + 1}/${slotCount().passives}` });
   const lvl = isW ? S.weapons[c.id].lvl : S.passives[c.id].lvl;
   const sig = isW && S.weapons[c.id].builtin ? 'SHIP ' : '';
   return Object.assign(base, { desc: d.levels[lvl], tag: `${sig}${isW ? 'WEAPON' : 'PASSIVE'} · LV ${lvl} → ${lvl + 1}` });
@@ -1168,15 +1356,16 @@ function gameUpdate(dt) {
   if (S.ev < events.length) {
     const ev = events[S.ev];
     if (!S.warned && S.t >= ev.t - CFG.level.warnTime) {
-      S.warn = CFG.level.warnTime; S.warned = true; S.warnName = ENEMY[ev.type].name; buzz([60, 60, 60]); snd('warning');
+      S.warn = CFG.level.warnTime; S.warned = true; S.warnName = enemyName(ev.type); buzz([60, 60, 60]); snd('warning');
     }
-    if (S.t >= ev.t) { spawnBoss(ev.type); S.ev++; S.warned = false; if (ev.type === 'queen') S.queenUp = true; }
+    if (S.t >= ev.t) { spawnBoss(ev.type); S.ev++; S.warned = false; if (ENEMY[ev.type].final) S.queenUp = true; }
   }
   if (S.victoryT > 0 && (S.victoryT -= dt) <= 0) { levelComplete(); return; }
   // --- the swarm (stops once the Queen arrives: she brings her own)
   if (!S.queenUp && (S.spawnT -= dt) <= 0) {
     const k = clamp(S.t / CFG.spawn.rampSeconds, 0, 1);
-    S.spawnT = lerp(CFG.spawn.startInterval, CFG.spawn.minInterval, k) * rand(0.7, 1.3) * (bossAlive() ? CFG.spawn.duringBossMul : 1);
+    S.spawnT = lerp(CFG.spawn.startInterval, CFG.spawn.minInterval, k) * rand(0.7, 1.3) * (bossAlive() ? CFG.spawn.duringBossMul : 1)
+             * (1 - CFG.stageScale.spawn * stageD());
     spawnPattern();
   }
 
@@ -1208,6 +1397,7 @@ function gameUpdate(dt) {
     if (b.dead) continue;
     b.x += b.vx * edt;
     b.y += b.vy * edt;
+    if (b.wob) { b.age += edt; b.x += Math.cos(b.age * b.wf) * b.wob * edt; }
     if (b.y < -20 || b.y > H + 20 || b.x < -20 || b.x > W + 20) { b.dead = true; continue; }
     const dx = b.x - p.x, dy = b.y - p.y, d2 = dx * dx + dy * dy;
     if (d2 < (CFG.player.hitRadius + b.r * 0.6) ** 2 && p.invuln <= 0) {
@@ -1305,7 +1495,7 @@ function update(dt) {
   if (S.armed && (S.armed.t -= dt) <= 0) S.armed = null;
   if (typeof uiTick === 'function') uiTick(dt);
   if (S.state === 'cutin') { S.cutin.t += dt; if (S.cutin.t >= S.cutin.dur) finishCutin(); return; }
-  if (S.state === 'play') gameUpdate(dt);
+  if (S.state === 'play') { gameUpdate(dt); S.intro = Math.max(0, S.intro - dt); }
   else {
     S.uiLock -= dt;
     if (S.state === 'over' || S.state === 'won') { S.shake = Math.max(0, S.shake - dt); updateParticles(dt); }
@@ -1329,11 +1519,15 @@ function buttonAt(pt) {
 }
 
 function openHangar() { newGame('hangar'); S.uiLock = 0.15; }
+function openStages() { newGame('stages'); S.uiLock = 0.15; }
 function resume() { S.state = 'play'; input.dx = input.dy = 0; }
 
-function startGame() {
-  newGame('play');
-  music('start', 'level1');
+function startGame(stage) {
+  stage = clamp(stage || META.lastStage || 1, 1, Math.min(STAGE_COUNT, META.unlocked || 1));
+  META.lastStage = stage; saveMeta();
+  newGame('play', stage);
+  S.intro = 3.2;
+  music('start', stageDef().music);
   try { const el = document.documentElement; el.requestFullscreen && el.requestFullscreen().catch(() => {}); } catch (e) {}
 }
 
@@ -1396,7 +1590,8 @@ window.addEventListener('keydown', e => {
     if (['1', '2', '3'].includes(k)) choose(+k - 1);
     if (k === 'r') reroll();
   }
-  if ((k === 'enter' || k === ' ') && (S.state === 'title' || S.state === 'hangar' || ((S.state === 'over' || S.state === 'won') && S.uiLock <= 0))) startGame();
+  if ((k === 'enter' || k === ' ') && (S.state === 'title' || S.state === 'hangar')) openStages();
+  else if ((k === 'enter' || k === ' ') && (S.state === 'stages' || ((S.state === 'over' || S.state === 'won') && S.uiLock <= 0))) startGame(S.stage);
   if (k === 'h' && (S.state === 'title' || ((S.state === 'over' || S.state === 'won') && S.uiLock <= 0))) openHangar();
 });
 window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
@@ -1405,6 +1600,6 @@ document.addEventListener('visibilitychange', () => { if (document.hidden && S &
 document.addEventListener('contextmenu', e => e.preventDefault());
 
 // Handy for testing from the browser console: STARBURN.S, STARBURN.giveXp(20)
-window.STARBURN = { get S() { return S; }, CFG, META, ENEMY_DEF: ENEMY, WEAPONS, PASSIVES, SHIPS, ULTS, giveXp(n) { if (S) S.xp += n; },
+window.STARBURN = { get S() { return S; }, CFG, META, ENEMY_DEF: ENEMY, STAGES, openStages, WEAPONS, PASSIVES, SHIPS, ULTS, giveXp(n) { if (S) S.xp += n; },
   choose, startGame, openHangar, activateUlt,
   step(dt, n) { for (let i = 0; i < n; i++) update(dt); } };   // fast-forward for testing

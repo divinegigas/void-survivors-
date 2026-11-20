@@ -37,17 +37,46 @@ function artResize() {
   dotPattern = ctx.createPattern(dc, 'repeat');
   try { dotPattern.setTransform(new DOMMatrix().scale(1 / SCALE)); } catch (e) {}
 
-  // sky: deep indigo with big soft halftone bands; tiles vertically
+  buildBackground(themeStage());
+}
+
+// Each stage has its own sky and ambient motion.
+const THEMES = {
+  1: { base: '#1d1648', dotA: '#2c2270', dotB: '#3b1f66', amb: 'stars' },     // hive fleet
+  2: { base: '#070a1f', dotA: '#1b2a6b', dotB: '#4a1460', amb: 'warp' },      // warp zone
+  3: { base: '#062a3c', dotA: '#0e4a5e', dotB: '#0b3a52', amb: 'bubbles' },   // the deep
+  4: { base: '#36101a', dotA: '#561828', dotB: '#481020', amb: 'cells' },     // inside the leviathan
+  5: { base: '#0b0614', amb: 'shards', rainbow: true },                        // prismatic void
+};
+let bgStage = 0, bgT = 0;
+const themeStage = () => (S && S.stage) || META.lastStage || 1;
+function buildBackground(stage) {
+  const th = THEMES[stage] || THEMES[1];
+  bgStage = stage;
   bgCanvas = document.createElement('canvas');
   bgCanvas.width = cv.width; bgCanvas.height = cv.height;
-  const g = bgCanvas.getContext('2d'), h = cv.height, sp = 11 * SCALE;
-  g.fillStyle = BG.base; g.fillRect(0, 0, bgCanvas.width, h);
+  const g = bgCanvas.getContext('2d'), h = cv.height, w = cv.width, sp = 11 * SCALE;
+  g.fillStyle = th.base; g.fillRect(0, 0, w, h);
   for (let row = 0, y = 0; y < h + sp; row++, y += sp * 0.87) {
-    for (let x = (row % 2) * sp / 2; x < bgCanvas.width + sp; x += sp) {
-      const ph = (y / h) * TAU, f = 0.5 + 0.5 * Math.sin(ph + x / bgCanvas.width * 1.5);
+    for (let x = (row % 2) * sp / 2; x < w + sp; x += sp) {
+      const ph = (y / h) * TAU, f = 0.5 + 0.5 * Math.sin(ph + x / w * 1.5);
       const r = sp * 0.48 * (0.12 + 0.88 * f * f);
-      g.fillStyle = Math.cos(ph) > 0 ? BG.dotA : BG.dotB;
+      g.fillStyle = th.rainbow ? `hsl(${(x / w * 220 + y / h * 360) % 360},65%,${16 + 10 * f}%)` : Math.cos(ph) > 0 ? th.dotA : th.dotB;
       g.beginPath(); g.arc(x, y % h, r, 0, TAU); g.fill();
+    }
+  }
+  if (stage === 4) {                                   // veins in the flesh walls
+    g.lineCap = 'round';
+    for (let i = 0; i < 16; i++) {
+      let x = Math.random() * w, y = h * (0.06 + Math.random() * 0.88);
+      for (let k = 0; k < 5; k++) {
+        const nx = x + (Math.random() - 0.5) * w * 0.3, ny = Math.min(h * 0.96, Math.max(h * 0.04, y + (Math.random() - 0.5) * h * 0.2));
+        for (const [lw, c] of [[4.5, '#1f060c'], [2, '#7a2236']]) {
+          g.lineWidth = lw * SCALE; g.strokeStyle = c;
+          g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo((x + nx) / 2 + (Math.random() - 0.5) * 40 * SCALE, (y + ny) / 2, nx, ny); g.stroke();
+        }
+        x = nx; y = ny;
+      }
     }
   }
   initStars();
@@ -56,18 +85,27 @@ function artResize() {
 let stars = [];
 function initStars() {
   stars = [];
-  for (let i = 0; i < 46; i++) {
-    const line = i % 3 !== 0;
-    stars.push({ x: Math.random() * W, y: Math.random() * H, line, len: rand(12, 34), sz: rand(1.6, 3.2), tw: Math.random() * TAU });
+  const amb = (THEMES[bgStage] || THEMES[1]).amb;
+  const n = { stars: 46, warp: 44, bubbles: 34, cells: 26, shards: 22 }[amb];
+  for (let i = 0; i < n; i++) {
+    const st = { x: Math.random() * W, y: Math.random() * H, tw: Math.random() * TAU, amb };
+    if (amb === 'stars') Object.assign(st, { line: i % 3 !== 0, len: rand(12, 34), sz: rand(1.6, 3.2) });
+    if (amb === 'warp') Object.assign(st, { len: rand(30, 120), sp: rand(600, 1100), col: pick(['#7de0ff', '#ff5df0', '#fff8e7', '#9b8aff']) });
+    if (amb === 'bubbles') Object.assign(st, { r: rand(1.5, 5), sp: rand(25, 70) });
+    if (amb === 'cells') Object.assign(st, { r: rand(3, 7.5), sp: rand(18, 45), rot: Math.random() * TAU });
+    if (amb === 'shards') Object.assign(st, { s: rand(4, 11), sp: rand(15, 40), rot: Math.random() * TAU, vr: rand(-1.5, 1.5), hue: Math.random() * 360 });
+    stars.push(st);
   }
 }
 function artUpdate(dt) {
   const boost = S && S.overdrive > 0 ? 2.2 : 1;
-  bgY += 14 * dt;
+  bgY += 14 * dt; bgT += dt;
   for (const s of stars) {
-    s.y += (s.line ? 260 * boost : 40) * dt;
     s.tw += dt * 4;
-    if (s.y - s.len > H) { s.y = -s.len; s.x = Math.random() * W; }
+    if (s.amb === 'stars') { s.y += (s.line ? 260 * boost : 40) * dt; if (s.y - s.len > H) { s.y = -s.len; s.x = Math.random() * W; } }
+    else if (s.amb === 'warp') { s.y += s.sp * boost * dt; if (s.y - s.len > H) { s.y = -s.len; s.x = Math.random() * W; } }
+    else if (s.amb === 'bubbles') { s.y -= s.sp * dt; s.x += Math.sin(s.tw * 0.6) * 12 * dt; if (s.y < -10) { s.y = H + 10; s.x = Math.random() * W; } }
+    else { s.y += s.sp * boost * dt; if (s.rot !== undefined) s.rot += (s.vr || 0.5) * dt; if (s.y > H + 15) { s.y = -15; s.x = Math.random() * W; } }
   }
 }
 function drawBackground() {
@@ -77,18 +115,60 @@ function drawBackground() {
   ctx.drawImage(bgCanvas, 0, off);
 }
 function drawStars() {
-  ctx.strokeStyle = PAPER;
-  ctx.lineWidth = 1.2;
-  ctx.globalAlpha = 0.22;
-  ctx.beginPath();
-  for (const s of stars) if (s.line) { ctx.moveTo(s.x, s.y - s.len); ctx.lineTo(s.x, s.y); }
-  ctx.stroke();
-  ctx.globalAlpha = 1;
-  ctx.fillStyle = COL.gold;
-  for (const s of stars) {
-    if (s.line) continue;
-    const r = s.sz * (0.7 + 0.3 * Math.sin(s.tw));
-    sparkle(s.x, s.y, r);
+  const amb = (THEMES[bgStage] || THEMES[1]).amb;
+  if (amb === 'stars') {
+    ctx.strokeStyle = PAPER; ctx.lineWidth = 1.2; ctx.globalAlpha = 0.22;
+    ctx.beginPath();
+    for (const s of stars) if (s.line) { ctx.moveTo(s.x, s.y - s.len); ctx.lineTo(s.x, s.y); }
+    ctx.stroke(); ctx.globalAlpha = 1;
+    ctx.fillStyle = COL.gold;
+    for (const s of stars) if (!s.line) sparkle(s.x, s.y, s.sz * (0.7 + 0.3 * Math.sin(s.tw)));
+  } else if (amb === 'warp') {                         // streaking light at warp speed
+    ctx.lineWidth = 1.8; ctx.globalAlpha = 0.45;
+    for (const s of stars) { ctx.strokeStyle = s.col; ctx.beginPath(); ctx.moveTo(s.x, s.y - s.len); ctx.lineTo(s.x, s.y); ctx.stroke(); }
+    ctx.globalAlpha = 0.08 + 0.05 * Math.sin(bgT * 3);
+    ctx.fillStyle = '#ff5df0'; ctx.fillRect(0, 0, 18, H); ctx.fillStyle = '#7de0ff'; ctx.fillRect(W - 18, 0, 18, H);
+    ctx.globalAlpha = 1;
+  } else if (amb === 'bubbles') {                      // light from the surface, rising bubbles
+    const gr = ctx.createLinearGradient(0, 0, 0, H * 0.6);
+    gr.addColorStop(0, 'rgba(120,230,230,0.22)'); gr.addColorStop(1, 'rgba(120,230,230,0)');
+    ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H * 0.6);
+    ctx.fillStyle = 'rgba(200,255,250,0.05)';
+    for (let k = 0; k < 4; k++) {
+      const x = W * (0.15 + k * 0.25) + Math.sin(bgT * 0.5 + k) * 30;
+      path([x - 10, 0, x + 26, 0, x + 70 + k * 10, H, x - 10, H]); ctx.fill();
+    }
+    ctx.strokeStyle = 'rgba(220,255,250,0.55)'; ctx.lineWidth = 1.2;
+    for (const s of stars) {
+      ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, TAU); ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.fillRect(s.x - s.r * 0.4, s.y - s.r * 0.5, 1.2, 1.2);
+    }
+  } else if (amb === 'cells') {                        // drifting blood cells and a heartbeat in the walls
+    for (const s of stars) {
+      ctx.save(); ctx.translate(s.x, s.y); ctx.rotate(s.rot); ctx.scale(1, 0.7);
+      ctx.globalAlpha = 0.5;
+      ctx.fillStyle = '#b0283e'; ctx.beginPath(); ctx.arc(0, 0, s.r, 0, TAU); ctx.fill();
+      ctx.fillStyle = '#6e1424'; ctx.beginPath(); ctx.arc(0, 0, s.r * 0.45, 0, TAU); ctx.fill();
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+    const beat = Math.pow(Math.max(0, Math.sin(bgT * TAU * 1.1)), 10);
+    if (beat > 0.01) {
+      for (const [x0, x1] of [[0, 60], [W, W - 60]]) {
+        const gr = ctx.createLinearGradient(x0, 0, x1, 0);
+        gr.addColorStop(0, `rgba(255,60,80,${0.28 * beat})`); gr.addColorStop(1, 'rgba(255,60,80,0)');
+        ctx.fillStyle = gr; ctx.fillRect(Math.min(x0, x1), 0, 60, H);
+      }
+    }
+  } else if (amb === 'shards') {                       // prism shards tumbling through the void
+    for (const s of stars) {
+      ctx.save(); ctx.translate(s.x, s.y); ctx.rotate(s.rot);
+      path([0, -s.s, s.s * 0.8, s.s * 0.6, -s.s * 0.8, s.s * 0.6]);
+      ctx.globalAlpha = 0.55; ctx.fillStyle = `hsl(${(s.hue + bgT * 40) % 360},90%,65%)`; ctx.fill();
+      ctx.globalAlpha = 0.8; ctx.lineWidth = 1.2; ctx.strokeStyle = PAPER; ctx.stroke();
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
   }
 }
 function sparkle(x, y, r) {          // 4-point comic twinkle
@@ -633,6 +713,132 @@ const CREATURE = {
   },
 };
 
+// ---- final bosses for stages 2-5 -------------------------------------------
+Object.assign(CREATURE, {
+  wyrm(e, f) {                        // WARP WYRM: a long serpent of glowing segments, horned head
+    const t = e.age, tr = e.trail || [];
+    for (let i = Math.min(tr.length - 1, 140); i >= 6; i -= 7) {
+      const [x, y] = tr[i], lx = x - e.x, ly = y - e.y, k = i / 140, r = 22 * (1 - k * 0.6);
+      flat(() => path([lx - r * 0.5, ly - r * 0.6, lx, ly - r * 1.5, lx + r * 0.5, ly - r * 0.6]), f ? PAPER : BONE, 1.4);
+      oval(lx, ly, r, r * 0.9, 0, (i / 7) % 2 ? e.color : tone(e.color, 0.3), f, 2.2);
+      if (!OUTLINE && (i / 7) % 3 === 0) { ctx.fillStyle = '#7de0ff'; ctx.beginPath(); ctx.arc(lx, ly, r * 0.28, 0, TAU); ctx.fill(); }
+    }
+    ctx.scale(e.r / 40, e.r / 40);
+    for (const sd of [-1, 1]) boneHook(sd * 14, -10, sd * 36, -30, sd * 26, -50, sd * 4, f);
+    oval(0, 0, 30, 34, 0, e.color, f, 3);
+    oval(0, 20, 20, 15, 0, tone(e.color, -0.3), f, 2.6);
+    maw(0, 26, 12, 9, 12, 0.6 + 0.4 * Math.abs(Math.sin(t * 4)));
+    eyeball(-14, -4, 4.6, '#7de0ff', t); eyeball(14, -4, 4.6, '#7de0ff', t); eyeball(-7, -15, 3, '#ff5df0', t); eyeball(7, -15, 3, '#ff5df0', t);
+    if (!OUTLINE) {
+      ctx.strokeStyle = '#c86bff'; ctx.lineWidth = 2.5; ctx.globalAlpha = 0.45 + 0.3 * Math.sin(t * 6);
+      ctx.beginPath(); ctx.arc(0, 0, 46 + Math.sin(t * 3) * 3, 0, TAU); ctx.stroke(); ctx.globalAlpha = 1;
+    }
+  },
+
+  maw(e, f) {                         // ABYSSAL MAW: anglerfish horror with a glowing lure and needle teeth
+    const t = e.age; ctx.scale(e.r / 56, e.r / 56);
+    const fl = 0.8 + 0.2 * Math.sin(t * 3);
+    membrane(-42, -4, Math.PI + 0.5, 36, 15, fl); membrane(42, -4, -0.5, 36, 15, fl);
+    oval(0, -8, 52, 44, 0, e.color, f, 3.2);
+    veins([[-40, -20, -22, -44, 0, -50], [36, -30, 26, 0, 44, 6], [-30, 4, -14, -6, -2, 10]]);
+    if (!OUTLINE) for (const [x, y, r] of [[-30, -30, 3], [-12, -40, 2.4], [18, -36, 3], [34, -14, 2.4], [-38, -6, 2.2], [8, -22, 2]]) {
+      ctx.globalAlpha = 0.55 + 0.45 * Math.sin(t * 4 + x); ctx.fillStyle = '#8affff';
+      ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    const open = 0.3 + (e.jaw || 0) * 0.7;
+    if (!OUTLINE) {                                  // the black mouth with needle teeth
+      ctx.fillStyle = MAW; ctx.beginPath(); ctx.moveTo(-44, 10); ctx.quadraticCurveTo(0, 22, 44, 10); ctx.quadraticCurveTo(0, 30 + open * 40, -44, 10); ctx.fill();
+      ctx.fillStyle = BONE; ctx.strokeStyle = INK; ctx.lineWidth = 0.8; ctx.beginPath();
+      for (let x = -38; x <= 38; x += 7) { const yu = 12 + (1 - Math.abs(x) / 44) * 6; ctx.moveTo(x - 2.5, yu); ctx.lineTo(x, yu + 9 + open * 6); ctx.lineTo(x + 2.5, yu); }
+      ctx.fill(); ctx.stroke();
+    }
+    celBuild(() => { ctx.beginPath(); ctx.moveTo(-48, 10); ctx.quadraticCurveTo(0, 42 + open * 34, 48, 10); ctx.lineTo(42, 18); ctx.quadraticCurveTo(0, 32 + open * 22, -42, 18); ctx.closePath(); },
+             tone(e.color, -0.3), 40, f, 3);
+    if (!OUTLINE) {
+      ctx.fillStyle = BONE; ctx.strokeStyle = INK; ctx.lineWidth = 0.8; ctx.beginPath();
+      for (let x = -34; x <= 34; x += 8) { const yb = 18 + (1 - Math.abs(x) / 44) * (14 + open * 22); ctx.moveTo(x - 2.5, yb); ctx.lineTo(x, yb - 11 - open * 5); ctx.lineTo(x + 2.5, yb); }
+      ctx.fill(); ctx.stroke();
+    }
+    eyeball(-26, -18, 5.2, '#e8f0f0', t); eyeball(26, -18, 5.2, '#e8f0f0', t);
+    const lx = Math.sin(t * 2) * 26;
+    tendril(0, -50, lx, 74, 26 * Math.sin(t), tone(e.color, 0.2), 2.6);
+    const charging = e.lure > 0, glow = charging ? (e.lure < 0.5 ? 1 : 0.5 + 0.5 * Math.sin(t * 30)) : 0.45 + 0.15 * Math.sin(t * 3);
+    if (!OUTLINE) { ctx.globalAlpha = glow * 0.45; ctx.fillStyle = '#fff7a0'; ctx.beginPath(); ctx.arc(lx, 80, 18 + glow * 10, 0, TAU); ctx.fill(); ctx.globalAlpha = 1; }
+    oval(lx, 80, 7, 7, 0, glow > 0.8 ? '#ffffff' : '#fff27a', f, 2);
+  },
+
+  heart(e, f) {                       // LEVIATHAN HEART: a beating heart with arteries, veins and eyes
+    const t = e.age, k = 1 + 0.12 * (e.beat || 0);
+    ctx.scale(e.r / 60 * k, e.r / 60 * k);
+    tendril(-16, -38, -44, -88, 8 * Math.sin(t), '#6a2a8a', 9);
+    tendril(8, -42, 26, -94, -6 * Math.sin(t * 1.3), '#d23a4a', 10);
+    tendril(28, -34, 64, -72, 5 * Math.sin(t), '#d23a4a', 7);
+    celBuild(() => {
+      ctx.beginPath(); ctx.moveTo(0, 54);
+      ctx.bezierCurveTo(-62, 20, -64, -42, -24, -46); ctx.bezierCurveTo(-8, -48, 0, -36, 0, -28);
+      ctx.bezierCurveTo(4, -42, 20, -52, 36, -44); ctx.bezierCurveTo(68, -28, 58, 24, 0, 54); ctx.closePath();
+    }, e.color, 58, f, 3.4);
+    veins([[-40, -20, -22, 0, -8, 30], [30, -36, 14, -10, 18, 24], [-20, -36, -8, -20, 6, -12], [40, 0, 24, 18, 8, 40]]);
+    if (!OUTLINE) {
+      ctx.strokeStyle = '#6a2a8a'; ctx.lineWidth = 2.4;
+      ctx.beginPath(); ctx.moveTo(-4, -26); ctx.quadraticCurveTo(-14, 10, 2, 46); ctx.stroke();
+      if (e.phase === 3) {
+        ctx.strokeStyle = '#ffd66a'; ctx.lineWidth = 2; ctx.globalAlpha = 0.6 + 0.4 * Math.sin(t * 10);
+        ctx.beginPath(); ctx.moveTo(-30, -20); ctx.lineTo(-18, -4); ctx.lineTo(-24, 10); ctx.moveTo(24, -24); ctx.lineTo(16, -6); ctx.lineTo(28, 8); ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+    }
+    eyeball(-20, -10, 4.2, EYE, t, e.phase === 3); eyeball(18, 4, 3.8, EYE, t, e.phase === 3); eyeball(-2, 24, 3, EYE, t, e.phase === 3);
+    drip(-6, 50, t, 1, 1.6); drip(10, 44, t, 3, 1.2);
+  },
+
+  seraph(e, f) {                      // SERAPH OF THE VOID: six wings, a weeping mask, a halo of spikes
+    const t = e.age, ph = e.phase || 1;
+    ctx.scale(e.r / 58 * 1.3, e.r / 58 * 1.3);          // drawn grander than her hitbox
+    if (!OUTLINE) {                                  // prismatic rays behind
+      ctx.save(); ctx.rotate(t * 0.3);
+      for (let k = 0; k < 12; k++) {
+        ctx.rotate(TAU / 12); ctx.globalAlpha = 0.16; ctx.fillStyle = `hsl(${(k * 30 + t * 60) % 360},90%,65%)`;
+        path([-6, 0, 6, 0, 0, 150]); ctx.fill();
+      }
+      ctx.restore(); ctx.globalAlpha = 1;
+    }
+    const flap = Math.sin(t * 2.2) * 0.08;
+    for (const sd of [-1, 1]) {                      // great feathered wings (back)
+      for (let i = 5; i >= 0; i--) oval(sd * (34 + i * 12), -34 - i * 7, 24, 7, sd * (-0.55 - i * 0.12 - flap), i % 2 ? '#f3ead2' : '#e3d6b4', f, 1.8);
+      for (let i = 0; i < 4; i++) eyeball(sd * (40 + i * 13), -38 - i * 7, 2.6, ph === 3 ? COL.red : '#ffd66a', t);
+    }
+    for (const sd of [-1, 1]) {                      // demonic bat wings (middle)
+      const x0 = sd * 18, y0 = -6;
+      flat(() => {
+        ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(sd * 70, -26 - flap * 40); ctx.lineTo(sd * 64, 0); ctx.lineTo(sd * 76, 18);
+        ctx.lineTo(sd * 56, 14); ctx.lineTo(sd * 58, 34); ctx.lineTo(sd * 38, 20); ctx.closePath();
+      }, '#2a1a3a', 2);
+      if (!OUTLINE) { ctx.strokeStyle = BONE; ctx.lineWidth = 1.6; ctx.beginPath(); for (const [x, y] of [[70, -26], [76, 18], [58, 34]]) { ctx.moveTo(x0, y0); ctx.lineTo(sd * x, y); } ctx.stroke(); }
+    }
+    for (const sd of [-1, 1]) for (let i = 2; i >= 0; i--) oval(sd * (22 + i * 9), 30 + i * 6, 14, 5, sd * (0.6 + i * 0.15), '#f3ead2', f, 1.6);   // small lower wings
+    celBuild(() => path([-16, -14, 16, -14, 26, 46, 0, 58, -26, 46]), '#e8dcc0', 30, f, 2.8);          // robed body
+    if (!OUTLINE) { ctx.strokeStyle = COL.gold; ctx.lineWidth = 2.2; ctx.beginPath(); ctx.moveTo(-12, 0); ctx.lineTo(0, 40); ctx.lineTo(12, 0); ctx.stroke(); }
+    // halo of spikes (red and cracked when desperate)
+    ctx.save(); ctx.translate(0, -44); ctx.rotate(t * 0.8);
+    if (!OUTLINE) {
+      ctx.strokeStyle = ph === 3 ? COL.red : COL.gold; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(0, 0, 24, 0, TAU); ctx.stroke();
+      ctx.fillStyle = ph === 3 ? COL.red : COL.gold; ctx.beginPath();
+      for (let k = 0; k < 10; k++) { const a = (k / 10) * TAU; ctx.moveTo(Math.cos(a - 0.08) * 24, Math.sin(a - 0.08) * 24); ctx.lineTo(Math.cos(a) * 34, Math.sin(a) * 34); ctx.lineTo(Math.cos(a + 0.08) * 24, Math.sin(a + 0.08) * 24); }
+      ctx.fill();
+    }
+    ctx.restore();
+    oval(0, -26, 14, 17, 0, '#f7f3ea', f, 2.6);                                                          // porcelain mask
+    if (!OUTLINE) {
+      ctx.fillStyle = INK; for (const sd of [-1, 1]) { ctx.beginPath(); ctx.ellipse(sd * 6, -28, 4, 1.6, sd * 0.25, 0, TAU); ctx.fill(); }
+      ctx.strokeStyle = ph === 3 ? '#1a0a10' : COL.gold; ctx.lineWidth = 1.6;
+      ctx.beginPath(); for (const sd of [-1, 1]) { ctx.moveTo(sd * 6, -26); ctx.quadraticCurveTo(sd * 7, -18, sd * 5, -8); } ctx.stroke();
+    }
+    eyeball(0, -38, 3.6, ph === 3 ? COL.red : '#ffd66a', t);                                            // third eye
+  },
+});
+
 function drawEnemy(e) {
   const draw = CREATURE[e.type] || CREATURE.drone, flash = e.flash > 0;
   LOOK = S ? Math.atan2(S.p.y - e.y, S.p.x - e.x) : Math.PI / 2;
@@ -725,7 +931,7 @@ function drawWorld() {
   }
   ctx.globalAlpha = 1;
 
-  if (S.state !== 'over' && S.state !== 'title' && S.state !== 'hangar') drawPlayer();
+  if (!['over', 'title', 'hangar', 'stages'].includes(S.state)) drawPlayer();
 
   drawEnemyShots();
 
@@ -760,15 +966,15 @@ function drawEnemyShots() {
   if (!list.length) return;
   ctx.fillStyle = INK;
   ctx.beginPath();
-  for (const b of list) { ctx.moveTo(b.x + 6.2, b.y); ctx.arc(b.x, b.y, 6.2, 0, TAU); }
+  for (const b of list) { const r = b.r * 1.55; ctx.moveTo(b.x + r, b.y); ctx.arc(b.x, b.y, r, 0, TAU); }
   ctx.fill();
   ctx.fillStyle = COL.enemyShot;
   ctx.beginPath();
-  for (const b of list) { ctx.moveTo(b.x + 4.4, b.y); ctx.arc(b.x, b.y, 4.4, 0, TAU); }
+  for (const b of list) { const r = b.r * 1.1; ctx.moveTo(b.x + r, b.y); ctx.arc(b.x, b.y, r, 0, TAU); }
   ctx.fill();
   ctx.fillStyle = PAPER;
   ctx.beginPath();
-  for (const b of list) { ctx.moveTo(b.x + 1.2, b.y - 1); ctx.arc(b.x - 1, b.y - 1, 2.2, 0, TAU); }
+  for (const b of list) { const r = b.r * 0.55; ctx.moveTo(b.x - 1 + r, b.y - 1); ctx.arc(b.x - 1, b.y - 1, r, 0, TAU); }
   ctx.fill();
 }
 
@@ -966,11 +1172,11 @@ function drawHud() {
   // Loadout: signature weapon (bold, starred), 4 weapon slots, 4 passive slots
   const sig = S.ship.weapon, wIds = slotWeapons(), pIds = Object.keys(S.passives);
   drawSlot(8, 42, WEAPONS[sig], S.weapons[sig].lvl, CFG.maxLevel, true);
-  for (let i = 0; i < CFG.slots.weapons; i++) {
+  for (let i = 0; i < slotCount().weapons; i++) {
     const id = wIds[i];
     drawSlot(40 + i * 28, 42, id && WEAPONS[id], id && S.weapons[id].lvl, CFG.maxLevel);
   }
-  for (let i = 0; i < CFG.slots.passives; i++) {
+  for (let i = 0; i < slotCount().passives; i++) {
     const id = pIds[i];
     drawSlot(40 + i * 28, 70, id && PASSIVES[id], id && S.passives[id].lvl, id && passiveMax(id));
   }
@@ -1036,7 +1242,7 @@ function drawHud() {
     ctx.fillStyle = INK; ctx.fillRect(18, y, W - 36, 10);
     ctx.fillStyle = '#3a3366'; ctx.fillRect(20, y + 2, W - 40, 6);
     ctx.fillStyle = boss.color; ctx.fillRect(20, y + 2, (W - 40) * Math.max(0, boss.hp / boss.maxHp), 6);
-    inkText(ENEMY[boss.type].name, W / 2, y + 18, 12, PAPER, 'center', FONT_D, 2.5);
+    inkText(boss.name || ENEMY[boss.type].name, W / 2, y + 18, 12, PAPER, 'center', FONT_D, 2.5);
   }
 }
 
@@ -1112,7 +1318,7 @@ function drawLevelUp() {
   const ek = easeOut(clamp(UIM.t / 0.3, 0, 1));
   ctx.globalAlpha = ek;
   inkText(isUlt ? 'PICK YOUR SUPER MOVE' : `LEVEL ${S.choiceLevel}: CHOOSE ONE`, W / 2, titleY + 46, 15, PAPER);
-  if (!isUlt) inkText(`WEAPONS ${slotWeapons().length}/${CFG.slots.weapons}  ·  PASSIVES ${Object.keys(S.passives).length}/${CFG.slots.passives}`,
+  if (!isUlt) inkText(`WEAPONS ${slotWeapons().length}/${slotCount().weapons}  ·  PASSIVES ${Object.keys(S.passives).length}/${slotCount().passives}`,
                       W / 2, titleY + 64, 11, COL.dim, 'center', FONT_D, 2.5);
   ctx.globalAlpha = 1;
 
@@ -1198,7 +1404,7 @@ function drawTitle() {
   ctx.globalAlpha = easeOut(clamp((UIM.t - 0.3) / 0.3, 0, 1));
   plainText('Drag to fly  ·  grab gems to level up  ·  only the white dot can be hit', W / 2, by - 6, 11, PAPER, 'center', FONT_B);
   ctx.globalAlpha = 1;
-  drawButton('launch', 34, by + 8, W - 68, 54, 'LAUNCH!', COL.xp, startGame);
+  drawButton('launch', 34, by + 8, W - 68, 54, 'LAUNCH!', COL.xp, openStages);
   drawButton('hangar', 34, by + 74, W - 68, 46, `HANGAR · ${META.bank} CR`, '#ff8c1a', openHangar);
   drawSoundToggles(by + 132);
   if (META.best > 0) inkText(`BEST TIME ${fmtTime(META.best)}${META.clears ? ` · CLEARS ${META.clears}` : ''}`, W / 2, by + 186, 14, COL.dim, 'center', FONT_D, 3);
@@ -1241,7 +1447,7 @@ function drawHangar() {
     drawUpgradeList(180, H - 76);
   }
   drawButton('back', 16, H - 64, tw, 48, 'BACK', '#5a5480', () => { newGame('title'); });
-  drawButton('launch', 28 + tw, H - 64, tw, 48, 'LAUNCH!', COL.xp, startGame);
+  drawButton('launch', 28 + tw, H - 64, tw, 48, 'LAUNCH!', COL.xp, openStages);
 }
 
 function drawTab(id, x, y, w, h, label, tab) {
@@ -1402,8 +1608,9 @@ function drawGameOver() {
   const e = easeOut(clamp(UIM.t / 0.35, 0, 1));
   const ph = H * 0.26;
   drawPilot(S.shipId, won ? 'normal' : 'crit', W - ph * 0.83 + 6 + (1 - e) * W, cy + 40, ph);
-  slamTitle(won ? 'LEVEL CLEAR!' : S.quit ? 'RUN ENDED' : 'SHIP LOST!', W / 2, cy, 46, won ? COL.xp : S.quit ? COL.player : COL.red, COL.gold);
-  if (won) inkText('THE HIVE QUEEN IS DEAD!', W / 2, cy + 40, 16, PAPER);
+  const finale = won && S.stage === STAGE_COUNT;
+  slamTitle(finale ? 'YOU WIN!' : won ? 'STAGE CLEAR!' : S.quit ? 'RUN ENDED' : 'SHIP LOST!', W / 2, cy, 46, won ? COL.xp : S.quit ? COL.player : COL.red, COL.gold);
+  if (won) inkText(finale ? 'THE VOID IS SILENT. YOU SURVIVED.' : `${ENEMY[stageDef().final].name} DESTROYED!`, W / 2, cy + 40, 15, PAPER);
   const rows = [['SURVIVED', fmtTime(S.t)], ['LEVEL', String(S.level)], ['KILLS', String(S.kills)], ['BEST', fmtTime(META.best)]];
   const py = cy + 62;
   ctx.save(); ctx.translate(-(1 - e) * W, 0);
@@ -1425,8 +1632,62 @@ function drawGameOver() {
   inkText(`BOUNTY BANKED · ${META.bank} CR TOTAL`, W / 2, cyy + 52, 13, PAPER, 'center', FONT_D, 3);
   if (S.newBest) inkText('NEW BEST TIME!', W / 2, cyy + 72, 16, COL.xp);
   const by = H * 0.74, on = S.uiLock <= 0;
-  drawButton('again', 40, by, W - 80, 54, 'FLY AGAIN!', COL.xp, startGame, on);
+  if (won && S.stage < STAGE_COUNT) drawButton('again', 40, by, W - 80, 54, `NEXT: STAGE ${S.stage + 1}!`, COL.xp, () => startGame(S.stage + 1), on);
+  else drawButton('again', 40, by, W - 80, 54, finale ? 'PLAY AGAIN' : 'FLY AGAIN!', COL.xp, () => startGame(S.stage), on);
   drawButton('hangar', 40, by + 68, W - 80, 46, 'HANGAR', '#ff8c1a', openHangar, on);
+}
+
+// --- Stage select ----------------------------------------------------------------
+function drawStages() {
+  slamTitle('SELECT STAGE', W / 2, 40, 32, COL.gold, COL.red);
+  const top = 82, bottom = H - 78, n = STAGE_COUNT, gap = 9, ph = (bottom - top - gap * (n - 1)) / n;
+  for (let i = 1; i <= n; i++) {
+    const st = STAGES[i], th = THEMES[i], y = top + (i - 1) * (ph + gap);
+    const open = i <= (META.unlocked || 1), done = META.cleared && META.cleared[i], sel = i === (META.lastStage || 1);
+    const pressed = S.uiPress === 'st' + i && open, d = pressed ? 3 : 0, e = enterK(i - 1, 0.05);
+    ctx.save(); ctx.translate((1 - e) * W * (i % 2 ? 1 : -1) + d, d);
+    slant(12, y, W - 24, ph, open ? PAPER : '#2a2440', pressed ? 0 : 5, 14);
+    // stage swatch with its number
+    ctx.save(); path([12 + 14, y, 96, y, 96 - 14, y + ph, 12, y + ph]); ctx.clip();
+    if (th.rainbow) { for (let k = 0; k < 8; k++) { ctx.fillStyle = `hsl(${k * 45 + bgT * 30},70%,45%)`; ctx.fillRect(12 + k * 11, y, 12, ph); } }
+    else { ctx.fillStyle = th.base; ctx.fillRect(12, y, 90, ph); ctx.fillStyle = th.dotA; ctx.globalAlpha = 0.9; for (let k = 0; k < 9; k++) { ctx.beginPath(); ctx.arc(20 + (k % 3) * 26, y + 12 + Math.floor(k / 3) * ph / 3, 6, 0, TAU); ctx.fill(); } ctx.globalAlpha = 1; }
+    ctx.restore();
+    path([12 + 14, y, 96, y, 96 - 14, y + ph, 12, y + ph]); ctx.lineWidth = 2.4; ctx.strokeStyle = INK; ctx.stroke();
+    inkText(String(i).padStart(2, '0'), 55, y + ph / 2 + 2, 38, open ? COL.gold : '#5a5480', 'center', FONT_D, 6);
+    const tx = 104;
+    plainText(open ? st.name : '???', tx, y + ph * 0.3, 20, open ? INK : '#6b6590', 'left');
+    plainText(open ? st.sub : `Clear stage ${i - 1} to unlock`, tx, y + ph * 0.54, 11, open ? '#4a4470' : '#6b6590', 'left', FONT_B);
+    if (open) plainText(`BOSS: ${done ? ENEMY[st.final].name : '???'}  ·  SLOTS ${st.slots[0]}+${st.slots[1]}`, tx, y + ph * 0.78, 12, '#4a4470', 'left');
+    const tag = !open ? 'LOCKED' : done ? 'CLEARED' : 'NEW';
+    ctx.font = `12px ${FONT_D}`;
+    const pw = ctx.measureText(tag).width + 12;
+    roundRect(W - 30 - pw, y + 8, pw, 18, 9); ctx.fillStyle = !open ? '#5a5480' : done ? COL.xp : COL.gold; ctx.fill(); ctx.lineWidth = 1.8; ctx.strokeStyle = INK; ctx.stroke();
+    plainText(tag, W - 30 - pw / 2, y + 18, 12, INK);
+    if (sel && open) { path([12 + 14, y, W - 12, y, W - 12 - 14, y + ph, 12, y + ph]); ctx.lineWidth = 3.5; ctx.strokeStyle = COL.gold; ctx.stroke(); }
+    ctx.restore();
+    addButton('st' + i, { x: 12, y, w: W - 24, h: ph }, () => startGame(i), open);
+  }
+  UIM.idx = n;
+  const tw = (W - 44) / 2;
+  drawButton('back', 16, H - 64, tw, 48, 'BACK', '#5a5480', () => { newGame('title'); });
+  drawButton('hangar', 28 + tw, H - 64, tw, 48, 'HANGAR', '#ff8c1a', openHangar);
+}
+
+// the card that opens each stage
+function drawStageIntro() {
+  if (!(S.intro > 0) || S.state !== 'play') return;
+  const t = 3.2 - S.intro, inK = easeOutBack(clamp(t / 0.4, 0, 1)), out = easeOut(clamp((0.5 - S.intro) / 0.5, 0, 1));
+  const st = stageDef(), y = H * 0.36, x = (1 - inK) * W + out * -W * 1.2;
+  ctx.save(); ctx.translate(x, 0);
+  slant(-20, y - 44, W + 40, 92, INK, 0, 22);
+  slant(-10, y - 36, W + 20, 76, COL.red, 0, 18);
+  if (dotPattern) { ctx.save(); path([8, y - 36, W + 10, y - 36, W - 8, y + 40, -10, y + 40]); ctx.clip(); ctx.globalAlpha = 0.25; ctx.fillStyle = dotPattern; ctx.fillRect(0, y - 40, W, 84); ctx.restore(); }
+  inkText(`STAGE ${S.stage}`, 24, y - 14, 22, COL.gold, 'left', FONT_D, 4);
+  inkText(st.name, W / 2, y + 12, st.name.length > 14 ? 30 : 40, PAPER, 'center', FONT_D, 6);
+  ctx.restore();
+  ctx.globalAlpha = inK * (1 - out);
+  inkText(st.sub, W / 2, y + 58, 13, PAPER, 'center', FONT_B, 3);
+  ctx.globalAlpha = 1;
 }
 
 // --- Ultimate cut-in: the game freezes for a dramatic splash ------------------
@@ -1519,8 +1780,9 @@ function render() {
   uiButtons = [];
   UIM.idx = 0;
   if (!bgCanvas) artResize();
+  if (themeStage() !== bgStage) buildBackground(themeStage());
   // a new screen? restart its entrance animation (and wipe between menu screens)
-  const key = S ? S.state + (S.state === 'hangar' ? hangarTab : '') : '';
+  const key = S ? S.state + (S.state === 'hangar' ? hangarTab : '') + (S.state === 'play' ? S.stage : '') : '';
   if (key !== UIM.key) {
     const from = UIM.key;
     UIM.key = key; UIM.t = 0;
@@ -1534,12 +1796,14 @@ function render() {
   drawStars();
   if (!S) return;
   drawWorld();
-  if (S.state !== 'title' && S.state !== 'hangar') drawHud();
+  if (S.state !== 'title' && S.state !== 'hangar' && S.state !== 'stages') drawHud();
   if (S.state === 'title') drawTitle();
   else if (S.state === 'hangar') drawHangar();
   else if (S.state === 'levelup') drawLevelUp();
   else if (S.state === 'paused') drawPaused();
   else if (S.state === 'cutin') drawCutin();
+  else if (S.state === 'stages') drawStages();
+  if (S.state === 'play') drawStageIntro();
   else if (S.state === 'over' || S.state === 'won') drawGameOver();
   ctx.setTransform(SCALE, 0, 0, SCALE, 0, 0);
   drawWipe();
