@@ -32,13 +32,15 @@ const CFG = {
   ultCutin: 1.8,              // seconds the game freezes for the ultimate's splash screen (0 = no splash)
   signatureCooldown: 0.8,     // a ship's own weapon fires 20% faster than the same weapon picked up later (1 = no bonus)
   rarityWeights: { common: 4, uncommon: 2, rare: 1 },   // common is 2x as likely as uncommon, which is 2x rare
-  shipCost: { common: 150, uncommon: 450, rare: 1000 }, // credits to unlock a ship, by its weapon's tier
+  shipCost: { common: 300, uncommon: 900, rare: 2000 }, // credits to unlock a ship, by its weapon's tier
+  upgradeCostMul: 3,          // multiplies every Hangar upgrade price
   deflectorRecharge: [0, 40, 32, 25, 19, 14],            // Deflector Shield recharge seconds per Hangar level
   maxLevel: 5,                // max level for weapons and most passives
   upgradeChoices: 3,
   postLevelUpInvuln: 0.8,     // grace after picking an upgrade (finger needs to find the ship)
 
   xp: {
+    gainRate: 0.5,            // fraction of each gem's XP you actually get (0.5 = half)
     orbFallSpeed: 55,         // crystals drift down; miss them and they're gone
     pullSpeed: 440,           // how fast crystals fly to you once inside the magnet
     needBase: 6,              // XP for level 2
@@ -50,10 +52,11 @@ const CFG = {
     graceTime: 1.5,           // quiet seconds at the start
     startInterval: 1.6,       // seconds between enemy groups at the start
     minInterval: 0.5,         // ...and once fully ramped up
-    rampSeconds: 600,         // how long it takes to reach full intensity
+    rampSeconds: 320,         // how long it takes to reach full intensity
     duringBossMul: 2.5,       // fewer small enemies while a boss is up
   },
 
+  bossHpMul: 0.5,             // scales every boss's health (tuned for 8-minute stages and half-rate XP)
   stageScale: {               // how much harder each stage after the first gets
     enemyHp: 0.5,             // +50% enemy health per stage (your loadout carries over, so the hive has to keep up)
     hpGrowth: 0.2,            // enemy health also climbs 20% faster during each stage, per stage
@@ -65,8 +68,8 @@ const CFG = {
     credits: 0,               // extra bounty per stage (0: later stages already have far more to kill)
   },
   level: {
-    length: 900,              // 15:00: the clock stops and the final boss arrives
-    miniBosses: [225, 450, 675],  // 3:45 Brood Brute, 7:30 Spore Mother, 11:15 Scythe Wraith
+    length: 480,              // 8:00: the clock stops and the final boss arrives
+    miniBosses: [120, 240, 360],  // mini-bosses at 2:00, 4:00 and 6:00
     warnTime: 3,              // seconds of WARNING before each boss
   },
 
@@ -171,7 +174,7 @@ const HANGAR = [
       return l === 0 ? `Blocks one hit, recharges in ${r[1]}s` : l >= 5 ? `Blocks one hit, recharges in ${r[5]}s`
                      : `Faster recharge: ${r[l]}s → ${r[l + 1]}s`; } },
 ];
-const hangarCost = h => Math.round(h.base * Math.pow(h.growth, ML(h.id)));
+const hangarCost = h => Math.round(h.base * Math.pow(h.growth, ML(h.id)) * CFG.upgradeCostMul);
 
 // One-time switch to per-ship upgrades: refund everything bought under the old shared Hangar.
 if (!META.v || META.v < 2) {
@@ -641,7 +644,7 @@ function newGame(state, stage) {
 // Enemies
 // ============================================================================
 // ============================================================================
-// Stages. Each: 15 minutes, 3 mini-bosses (same brains, new skins), its own
+// Stages. Each: 8 minutes, 3 mini-bosses (same brains, new skins), its own
 // final boss, music, look, enemy colours, wave mix and loadout slots.
 // ============================================================================
 const STAGES = [null,
@@ -691,8 +694,8 @@ const enemyName = type => (stageDef().minis[type] || [ENEMY[type].name])[0];
 
 function spawnEnemy(type, x, y, extra) {
   const d = ENEMY[type], st = stageDef(), k = stageD(), sc = CFG.stageScale;
-  const hp = d.final ? d.hp * (1 + sc.finalHp * k)                         // bosses have fixed health per stage
-           : d.boss ? d.hp * (1 + sc.bossHp * k)
+  const hp = d.final ? d.hp * CFG.bossHpMul * (1 + sc.finalHp * k)       // bosses have fixed health per stage
+           : d.boss ? d.hp * CFG.bossHpMul * (1 + sc.bossHp * k)
            : d.hp * (1 + CFG.enemyHpGrowthPerMin * (1 + sc.hpGrowth * k) * S.t / 60) * (1 + sc.enemyHp * k);
   const mini = st.minis[type], color = mini ? mini[1] : st.tint[type] || d.color;
   const e = Object.assign({ type, x, y, hp, maxHp: hp, r: d.r, xp: d.xp, credits: d.credits * (1 + sc.credits * k), color, boss: !!d.boss, final: !!d.final,
@@ -811,7 +814,7 @@ function bossStalker(e, dt) {       // 11:15 · sweeping scythe streams, then da
     if (e.patT <= 0) { e.mode = 1; e.patT = e.hp < e.maxHp / 2 ? 3.2 : 4.2; }
   }
 }
-function bossQueen(e, dt) {         // 15:00 · three phases, each angrier
+function bossQueen(e, dt) {         // stage 1 final boss · three phases, each angrier
   if (bossEnter(e, dt)) return;
   const f = e.hp / e.maxHp, phase = f > 0.66 ? 1 : f > 0.33 ? 2 : 3;
   if (phase !== e.phase) {
@@ -980,7 +983,7 @@ const BOSS_BRAIN = { brute: bossBrute, mother: bossMother, stalker: bossStalker,
                      wyrm: bossWyrm, maw: bossMaw, heart: bossHeart, seraph: bossSeraph };
 
 function enemyShot(x, y, angle, speedMul, extra) {
-  const sp = CFG.enemyBulletSpeed * Math.min(CFG.enemyBulletSpeedMax, 1 + S.t / 900) * (1 + CFG.stageScale.bulletSpeed * stageD()) * (speedMul || 1);
+  const sp = CFG.enemyBulletSpeed * Math.min(CFG.enemyBulletSpeedMax, 1 + S.t / CFG.level.length) * (1 + CFG.stageScale.bulletSpeed * stageD()) * (speedMul || 1);
   const b = { x, y, vx: Math.cos(angle) * sp, vy: Math.sin(angle) * sp, r: 4 };
   S.ebullets.push(extra ? Object.assign(b, extra, { age: 0 }) : b);
 }
@@ -1385,7 +1388,7 @@ function gameUpdate(dt) {
   }
   S.sig = false;
 
-  // --- the level: 3 mini-bosses on the clock, then the Hive Queen at 15:00
+  // --- the stage: 3 mini-bosses on the clock, then the final boss when time runs out
   const events = LEVEL_EVENTS();
   if (S.ev < events.length) {
     const ev = events[S.ev];
@@ -1456,7 +1459,7 @@ function gameUpdate(dt) {
     }
     if (d < 12) {
       o.dead = true;
-      S.xp += o.v * S.mod.xp;
+      S.xp += o.v * S.mod.xp * CFG.xp.gainRate;
       snd('gem');
       sparks(o.x, o.y, COL.xp, 2);
     } else if (o.y > H + 10) o.dead = true;

@@ -51,7 +51,7 @@ Open `www/index.html` in a browser. Arrow keys or WASD move, 1/2/3 pick an upgra
    (6 ultimates, double-tap to fire), comic-book cel-shaded look with halftone dots and POW! bursts.
 5. **Level 1: the hive** (done): VESPER fires straight ahead (Autocannon), per-ship stats and Hangar
    upgrades (hull, power, fire rate, pickup range, handling), ships 20% bigger, organic insect-hive
-   enemies, a 15-minute level with 3 mini-bosses (3:45, 7:30, 11:15) and the Hive Queen at 15:00.
+   enemies, a timed level with 3 mini-bosses and the Hive Queen at the end.
 6. **Sound + polish** (done): Level 1 music, quiet sound effects with music/sound toggles,
    glowing XP gems, white outlines on enemies.
    Next feel pass: tune difficulty and effects from playtests.
@@ -60,7 +60,7 @@ Open `www/index.html` in a browser. Arrow keys or WASD move, 1/2/3 pick an upgra
 8. **Real Android app** (done): Capacitor wrapper, APK built by GitHub Actions and posted to Releases.
 9. **Five stages** (done): stage select; Hive Fleet, Warp Zone, The Deep, Inside the Leviathan and
    the Prismatic Void, played as one campaign run (your loadout carries on; +1 weapon and +1 support
-   slot per stage, 2+2 up to 6+6). Each is 15 minutes with 3 mini-bosses, its own final boss (Hive Queen, Warp Wyrm,
+   slot per stage, 2+2 up to 6+6). Each is 8 minutes with 3 mini-bosses (2:00, 4:00, 6:00), its own final boss (Hive Queen, Warp Wyrm,
    Abyssal Maw, Leviathan Heart, Seraph of the Void), look and music. Each stage is harder
    (`CFG.stageScale`); starting on a later stage gives a head start of level-ups instead.
 10. **More content**: weapon evolutions, more enemy types, endless mode.
