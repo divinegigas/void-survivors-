@@ -23,7 +23,10 @@ const CFG = {
     handling: 1100,           // how fast (units/s) a ship can chase your finger; each ship multiplies this
   },
 
-  // loadout slots come from the stage (STAGES[n].slots): 2+2 on stage 1, growing to 4+4 by stage 5
+  // loadout slots come from the stage (STAGES[n].slots): 2+2 on stage 1, +1 of each per stage, 6+6 by stage 5.
+  // One run is a campaign: your loadout carries from stage to stage.
+  headStart: 8,               // starting directly on a later stage gives this many instant level-ups per skipped stage
+  bountyRate: 0.6,            // fraction of each kill's bounty you actually collect (keeps the Hangar economy sane)
   ultLevel: 10,               // level that offers a choice of ultimate (double-tap to fire)
   ultCooldownMul: 1,          // 0.5 = ultimates recharge twice as fast
   ultCutin: 1.8,              // seconds the game freezes for the ultimate's splash screen (0 = no splash)
@@ -52,14 +55,14 @@ const CFG = {
   },
 
   stageScale: {               // how much harder each stage after the first gets
-    enemyHp: 0.15,            // +15% starting enemy health per stage (kept low: every run starts at level 1)...
-    hpGrowth: 0.2,            // ...but enemy health climbs 20% faster during the run per stage
-    bossHp: 0.3,              // +30% mini-boss health per stage
-    finalHp: 0.35,            // +35% final-boss health per stage
+    enemyHp: 0.5,             // +50% enemy health per stage (your loadout carries over, so the hive has to keep up)
+    hpGrowth: 0.2,            // enemy health also climbs 20% faster during each stage, per stage
+    bossHp: 1.0,              // +100% mini-boss health per stage (5x by stage 5)
+    finalHp: 1.0,             // +100% final-boss health per stage
     bulletSpeed: 0.07,        // +7% enemy bullet speed per stage
     spawn: 0.1,               // 10% shorter gaps between enemy waves per stage
     fire: 0.15,               // enemies fire 15% more often per stage
-    credits: 0.5,             // +50% bounty per stage
+    credits: 0,               // extra bounty per stage (0: later stages already have far more to kill)
   },
   level: {
     length: 900,              // 15:00: the clock stops and the final boss arrives
@@ -622,6 +625,7 @@ function newGame(state, stage) {
     pending: 0, choices: null, choiceLevel: 0, uiLock: 0, uiPress: null, flash: null,
     rerolls: ML('reroll'), revives: ML('revive'),
     stage: clamp(stage || META.lastStage || 1, 1, STAGE_COUNT), intro: 0, fireMul: 1,
+    runT: 0, banked: 0, startStage: clamp(stage || 1, 1, STAGE_COUNT),
   };
   S.fireMul = 1 + CFG.stageScale.fire * stageD();
   recalcMods();
@@ -644,16 +648,16 @@ const STAGES = [null,
   { name: 'HIVE FLEET', sub: 'Break through the swarm', music: 'level1', final: 'queen', slots: [2, 2],
     minis: { brute: ['BROOD BRUTE', '#6d3a8f'], mother: ['SPORE MOTHER', '#62b39a'], stalker: ['SCYTHE WRAITH', '#d8ccb4'] },
     tint: {}, waves: { single: 3, line: 3, snake: 2, divers: 1.5, gunner: 1.2 } },
-  { name: 'WARP ZONE', sub: 'Reality bends at lightspeed', music: 'level2', final: 'wyrm', slots: [3, 2],
+  { name: 'WARP ZONE', sub: 'Reality bends at lightspeed', music: 'level2', final: 'wyrm', slots: [3, 3],
     minis: { brute: ['PHASE BRUTE', '#5b6bd6'], mother: ['FLUX MOTHER', '#c86bff'], stalker: ['RIFT WRAITH', '#9be8ff'] },
     tint: { drone: '#7de0ff', weaver: '#c86bff', diver: '#ff5df0', gunner: '#5d9dff' }, waves: { single: 2, line: 3, snake: 2, divers: 3, gunner: 1.3 } },
-  { name: 'THE DEEP', sub: 'Something ancient is waiting below', music: 'level3', final: 'maw', slots: [3, 3],
+  { name: 'THE DEEP', sub: 'Something ancient is waiting below', music: 'level3', final: 'maw', slots: [4, 4],
     minis: { brute: ['REEF CRUSHER', '#3f8f8a'], mother: ['SIREN SAC', '#9fd6c8'], stalker: ['DEEP REAPER', '#c8d0e0'] },
     tint: { drone: '#7fd6c2', weaver: '#4fb3a0', diver: '#e8a0c8', gunner: '#7aa0d6' }, waves: { single: 2, line: 2, snake: 4, divers: 1.5, gunner: 1.6 } },
-  { name: 'INSIDE THE LEVIATHAN', sub: 'Fly down its throat. Stop its heart.', music: 'level4', final: 'heart', slots: [4, 3],
+  { name: 'INSIDE THE LEVIATHAN', sub: 'Fly down its throat. Stop its heart.', music: 'level4', final: 'heart', slots: [5, 5],
     minis: { brute: ['BILE TICK', '#8a2a3a'], mother: ['POLYP MOTHER', '#d47a8a'], stalker: ['MARROW WRAITH', '#e8d8c0'] },
     tint: { drone: '#e88a8a', weaver: '#c2405a', diver: '#d86a9a', gunner: '#e0b060' }, waves: { single: 4, line: 3, snake: 2, divers: 2, gunner: 2 } },
-  { name: 'PRISMATIC VOID', sub: 'Beyond reality. Something divine and wrong.', music: 'level5', final: 'seraph', slots: [4, 4],
+  { name: 'PRISMATIC VOID', sub: 'Beyond reality. Something divine and wrong.', music: 'level5', final: 'seraph', slots: [6, 6],
     minis: { brute: ['PRISM BRUTE', '#a88aff'], mother: ['HALO MOTHER', '#ffd0f0'], stalker: ['MIRROR WRAITH', '#e0f0ff'] },
     tint: { drone: '#b8a8ff', weaver: '#ff9ae0', diver: '#8affe0', gunner: '#ffe08a' }, waves: { single: 3, line: 3, snake: 3, divers: 3, gunner: 2 } },
 ];
@@ -1057,7 +1061,7 @@ function killEnemy(e) {
     }
   }
   // Bounty
-  const c = e.credits * S.mod.credit;
+  const c = e.credits * S.mod.credit * CFG.bountyRate;
   S.credits += c;
   if (e.credits >= 3) floatText(e.x, e.y - e.r - 6, `+${Math.floor(c)} CR`, COL.gold, big ? 18 : 11);
   // Drop XP: big crystals worth 5 for chunky enemies, the rest as 1s.
@@ -1179,10 +1183,19 @@ function updateParticles(dt) {
   compact(S.parts); compact(S.texts); compact(S.zaps); compact(S.bursts);
 }
 
+function bankCredits() {              // credits are banked at every stage clear, so a later death can't lose them
+  const earned = Math.floor(S.credits) - S.banked;
+  S.banked += earned; META.bank += earned;
+  return earned;
+}
 function levelComplete() {
   S.won = true;
-  gameOver(false);
   S.state = 'won';
+  S.uiLock = 1.0; S.laser = null;
+  music('stop'); snd('victory');
+  S.earned = bankCredits();
+  S.newBest = S.runT > META.best;
+  if (S.newBest) META.best = S.runT;
   META.clears = (META.clears || 0) + 1;
   META.unlocked = Math.min(STAGE_COUNT, Math.max(META.unlocked || 1, S.stage + 1));
   META.cleared = META.cleared || {};
@@ -1199,11 +1212,32 @@ function gameOver(quit) {
   S.uiLock = 1.0;
   S.laser = null;
   if (!quit) { sparks(S.p.x, S.p.y, COL.player, 60); sparks(S.p.x, S.p.y, COL.flame, 40); }
-  S.earned = Math.floor(S.credits);
-  META.bank += S.earned;
-  S.newBest = S.t > META.best;
-  if (S.newBest) META.best = S.t;
+  S.earned = bankCredits();
+  S.newBest = S.runT > META.best;
+  if (S.newBest) META.best = S.runT;
   saveMeta();
+}
+
+// Carry the whole run into the next stage: loadout, levels, pilot level and ultimate all stay.
+// You're healed, your ultimate is recharged, and you get one more slot of each kind.
+function nextStage() {
+  if (S.stage >= STAGE_COUNT) return;
+  S.stage++;
+  Object.assign(S, {
+    state: 'play', won: false, t: 0, ev: 0, warned: false, warn: 0, queenUp: false, victoryT: 0,
+    spawnT: CFG.spawn.graceTime, intro: 3.2, uiLock: 0, choices: null, shake: 0,
+    bullets: [], ebullets: [], enemies: [], orbs: [], parts: [], novas: [], zaps: [], texts: [], bursts: [], gibs: [], splats: [],
+    laser: null, hole: null, barrage: null, overdrive: 0, warp: 0, phase: 0, whiteout: 0,
+  });
+  S.fireMul = 1 + CFG.stageScale.fire * stageD();
+  recalcMods();
+  const p = S.p;
+  p.hp = p.maxHp; p.invuln = 2; p.x = p.tx = W / 2; p.y = p.ty = H * 0.78;
+  if (ML('deflector')) p.bubble = true;
+  if (S.ult) S.ult.cd = 0;
+  input.dx = input.dy = 0;
+  META.lastStage = S.stage; saveMeta();
+  music('start', stageDef().music);
 }
 
 // ============================================================================
@@ -1317,7 +1351,7 @@ function choose(i) {
 // ============================================================================
 function gameUpdate(dt) {
   const p = S.p;
-  S.t += dt;
+  S.t += dt; S.runT += dt;
   S.shake = Math.max(0, S.shake - dt);
   S.warn = Math.max(0, S.warn - dt);
 
@@ -1528,6 +1562,11 @@ function startGame(stage) {
   newGame('play', stage);
   S.intro = 3.2;
   music('start', stageDef().music);
+  if (stage > 1) {                      // skipping ahead: a head start instead of a carried loadout
+    S.pending = CFG.headStart * (stage - 1);
+    S.level = 1 + S.pending;
+    openLevelUp();
+  }
   try { const el = document.documentElement; el.requestFullscreen && el.requestFullscreen().catch(() => {}); } catch (e) {}
 }
 
@@ -1591,7 +1630,9 @@ window.addEventListener('keydown', e => {
     if (k === 'r') reroll();
   }
   if ((k === 'enter' || k === ' ') && (S.state === 'title' || S.state === 'hangar')) openStages();
-  else if ((k === 'enter' || k === ' ') && (S.state === 'stages' || ((S.state === 'over' || S.state === 'won') && S.uiLock <= 0))) startGame(S.stage);
+  else if ((k === 'enter' || k === ' ') && S.state === 'stages') startGame(S.stage);
+  else if ((k === 'enter' || k === ' ') && S.state === 'won' && S.uiLock <= 0 && S.stage < STAGE_COUNT) nextStage();
+  else if ((k === 'enter' || k === ' ') && (S.state === 'over' || S.state === 'won') && S.uiLock <= 0) openStages();
   if (k === 'h' && (S.state === 'title' || ((S.state === 'over' || S.state === 'won') && S.uiLock <= 0))) openHangar();
 });
 window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
@@ -1600,6 +1641,6 @@ document.addEventListener('visibilitychange', () => { if (document.hidden && S &
 document.addEventListener('contextmenu', e => e.preventDefault());
 
 // Handy for testing from the browser console: STARBURN.S, STARBURN.giveXp(20)
-window.STARBURN = { get S() { return S; }, CFG, META, ENEMY_DEF: ENEMY, STAGES, openStages, WEAPONS, PASSIVES, SHIPS, ULTS, giveXp(n) { if (S) S.xp += n; },
+window.STARBURN = { get S() { return S; }, CFG, META, ENEMY_DEF: ENEMY, STAGES, openStages, nextStage, WEAPONS, PASSIVES, SHIPS, ULTS, giveXp(n) { if (S) S.xp += n; },
   choose, startGame, openHangar, activateUlt,
   step(dt, n) { for (let i = 0; i < n; i++) update(dt); } };   // fast-forward for testing

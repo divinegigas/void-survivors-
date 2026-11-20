@@ -59,7 +59,8 @@ Open `www/index.html` in a browser. Arrow keys or WASD move, 1/2/3 pick an upgra
    Hangar, pilot face in the HUD, Persona-style animated menus, dramatic ultimate cut-in, new name.
 8. **Real Android app** (done): Capacitor wrapper, APK built by GitHub Actions and posted to Releases.
 9. **Five stages** (done): stage select; Hive Fleet, Warp Zone, The Deep, Inside the Leviathan and
-   the Prismatic Void, each 15 minutes with 3 mini-bosses, its own final boss (Hive Queen, Warp Wyrm,
-   Abyssal Maw, Leviathan Heart, Seraph of the Void), look and music. Slots grow per stage (2+2 up to
-   4+4), each stage is harder (`CFG.stageScale`), and the XP curve is gentler.
+   the Prismatic Void, played as one campaign run (your loadout carries on; +1 weapon and +1 support
+   slot per stage, 2+2 up to 6+6). Each is 15 minutes with 3 mini-bosses, its own final boss (Hive Queen, Warp Wyrm,
+   Abyssal Maw, Leviathan Heart, Seraph of the Void), look and music. Each stage is harder
+   (`CFG.stageScale`); starting on a later stage gives a head start of level-ups instead.
 10. **More content**: weapon evolutions, more enemy types, endless mode.

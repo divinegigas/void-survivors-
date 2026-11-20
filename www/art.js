@@ -1114,15 +1114,15 @@ function drawBurst(b) {
 const PAUSE_BTN = { x: W - 44, y: 14, w: 40, h: 40 };
 const ULT_POS = () => ({ x: W - 112, y: H - 44 });
 
-function drawSlot(x, y, def, lvl, max, builtin) {
-  const s = 23;
+function drawSlot(x, y, def, lvl, max, builtin, size) {
+  const s = size || 23;
   if (def) {
     const tc = TIER[def.tier].color;
     roundRect(x + 2, y + 2, s, s, 4); ctx.fillStyle = INK; ctx.fill();
     roundRect(x, y, s, s, 4);
     ctx.fillStyle = tc; ctx.fill();
     ctx.lineWidth = builtin ? 3 : 2; ctx.strokeStyle = INK; ctx.stroke();
-    ctx.font = '700 13px system-ui, sans-serif';
+    ctx.font = `700 ${Math.round(s * 0.56)}px system-ui, sans-serif`;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillStyle = INK;
     ctx.fillText(def.glyph, x + s / 2, y + s / 2 + 1);
@@ -1147,9 +1147,9 @@ function drawHud() {
   inkText(`LV ${S.level}`, 8, 28, 20, PAPER, 'left');
   const L = CFG.level.length;
   inkText(fmtTime(Math.min(S.t, L)), W / 2, 28, 20, S.queenUp ? COL.red : PAPER);
-  inkText(S.queenUp ? 'FINAL BOSS' : `${S.kills} KILLS`, W / 2, 47, 13, S.queenUp ? COL.gold : COL.dim, 'center', FONT_D, 2.5);
-  // level progress: 3 mini-boss markers and the Queen at the end
-  const px = W / 2 - 60, pw = 120, py = 60;
+  // stage progress (top right, under the hearts): 3 mini-boss markers and the final boss at the end
+  const pw = 104, px = W - 14 - pw, py = 66;
+  inkText(`STG ${S.stage}`, px - 6, py + 1, 11, COL.dim, 'right', FONT_D, 2.5);
   ctx.fillStyle = INK; ctx.fillRect(px - 2, py - 2, pw + 4, 6);
   ctx.fillStyle = '#3a3366'; ctx.fillRect(px, py, pw, 2);
   ctx.fillStyle = COL.gold; ctx.fillRect(px, py, pw * Math.min(1, S.t / L), 2);
@@ -1169,16 +1169,18 @@ function drawHud() {
     ctx.lineWidth = 1.8; ctx.strokeStyle = INK; ctx.stroke();
   }
 
-  // Loadout: signature weapon (bold, starred), 4 weapon slots, 4 passive slots
-  const sig = S.ship.weapon, wIds = slotWeapons(), pIds = Object.keys(S.passives);
-  drawSlot(8, 42, WEAPONS[sig], S.weapons[sig].lvl, CFG.maxLevel, true);
-  for (let i = 0; i < slotCount().weapons; i++) {
+  // Loadout: signature weapon (bold, starred), then the weapon row and the support row.
+  // Slots shrink a little once a row holds more than four (stage 3 onwards).
+  const sig = S.ship.weapon, wIds = slotWeapons(), pIds = Object.keys(S.passives), sc = slotCount();
+  const most = Math.max(sc.weapons, sc.passives), sz = most > 4 ? 19 : 23, step = sz + (most > 4 ? 4 : 5);
+  drawSlot(8, 42, WEAPONS[sig], S.weapons[sig].lvl, CFG.maxLevel, true, sz);
+  for (let i = 0; i < sc.weapons; i++) {
     const id = wIds[i];
-    drawSlot(40 + i * 28, 42, id && WEAPONS[id], id && S.weapons[id].lvl, CFG.maxLevel);
+    drawSlot(38 + i * step, 42, id && WEAPONS[id], id && S.weapons[id].lvl, CFG.maxLevel, false, sz);
   }
-  for (let i = 0; i < slotCount().passives; i++) {
+  for (let i = 0; i < sc.passives; i++) {
     const id = pIds[i];
-    drawSlot(40 + i * 28, 70, id && PASSIVES[id], id && S.passives[id].lvl, id && passiveMax(id));
+    drawSlot(38 + i * step, 46 + sz, id && PASSIVES[id], id && S.passives[id].lvl, id && passiveMax(id), false, sz);
   }
 
   // pause button
@@ -1611,7 +1613,8 @@ function drawGameOver() {
   const finale = won && S.stage === STAGE_COUNT;
   slamTitle(finale ? 'YOU WIN!' : won ? 'STAGE CLEAR!' : S.quit ? 'RUN ENDED' : 'SHIP LOST!', W / 2, cy, 46, won ? COL.xp : S.quit ? COL.player : COL.red, COL.gold);
   if (won) inkText(finale ? 'THE VOID IS SILENT. YOU SURVIVED.' : `${ENEMY[stageDef().final].name} DESTROYED!`, W / 2, cy + 40, 15, PAPER);
-  const rows = [['SURVIVED', fmtTime(S.t)], ['LEVEL', String(S.level)], ['KILLS', String(S.kills)], ['BEST', fmtTime(META.best)]];
+  if (won && !finale) inkText(`Your loadout carries on · +1 weapon and +1 support slot`, W / 2, H * 0.74 - 16, 11, COL.dim, 'center', FONT_B, 3);
+  const rows = [['STAGE', `${S.stage} / ${STAGE_COUNT}`], ['RUN TIME', fmtTime(S.runT)], ['LEVEL', String(S.level)], ['KILLS', String(S.kills)], ['BEST', fmtTime(META.best)]];
   const py = cy + 62;
   ctx.save(); ctx.translate(-(1 - e) * W, 0);
   slant(24, py, W * 0.6, 22 + rows.length * 24, PAPER, 5, 12);
@@ -1632,9 +1635,13 @@ function drawGameOver() {
   inkText(`BOUNTY BANKED · ${META.bank} CR TOTAL`, W / 2, cyy + 52, 13, PAPER, 'center', FONT_D, 3);
   if (S.newBest) inkText('NEW BEST TIME!', W / 2, cyy + 72, 16, COL.xp);
   const by = H * 0.74, on = S.uiLock <= 0;
-  if (won && S.stage < STAGE_COUNT) drawButton('again', 40, by, W - 80, 54, `NEXT: STAGE ${S.stage + 1}!`, COL.xp, () => startGame(S.stage + 1), on);
-  else drawButton('again', 40, by, W - 80, 54, finale ? 'PLAY AGAIN' : 'FLY AGAIN!', COL.xp, () => startGame(S.stage), on);
-  drawButton('hangar', 40, by + 68, W - 80, 46, 'HANGAR', '#ff8c1a', openHangar, on);
+  if (won && S.stage < STAGE_COUNT) {
+    drawButton('again', 40, by, W - 80, 54, `ONWARD: STAGE ${S.stage + 1}!`, COL.xp, nextStage, on);
+    drawButton('hangar', 40, by + 68, W - 80, 46, 'END RUN · HANGAR', '#ff8c1a', openHangar, on);
+  } else {
+    drawButton('again', 40, by, W - 80, 54, finale ? 'PLAY AGAIN' : 'NEW RUN', COL.xp, openStages, on);
+    drawButton('hangar', 40, by + 68, W - 80, 46, 'HANGAR', '#ff8c1a', openHangar, on);
+  }
 }
 
 // --- Stage select ----------------------------------------------------------------
@@ -1657,7 +1664,7 @@ function drawStages() {
     const tx = 104;
     plainText(open ? st.name : '???', tx, y + ph * 0.3, 20, open ? INK : '#6b6590', 'left');
     plainText(open ? st.sub : `Clear stage ${i - 1} to unlock`, tx, y + ph * 0.54, 11, open ? '#4a4470' : '#6b6590', 'left', FONT_B);
-    if (open) plainText(`BOSS: ${done ? ENEMY[st.final].name : '???'}  ·  SLOTS ${st.slots[0]}+${st.slots[1]}`, tx, y + ph * 0.78, 12, '#4a4470', 'left');
+    if (open) plainText(i === 1 ? `FULL RUN: all 5 stages, loadout carries on` : `HEAD START: ${CFG.headStart * (i - 1)} LEVEL-UPS · SLOTS ${st.slots[0]}+${st.slots[1]}`, tx, y + ph * 0.78, 11.5, '#4a4470', 'left');
     const tag = !open ? 'LOCKED' : done ? 'CLEARED' : 'NEW';
     ctx.font = `12px ${FONT_D}`;
     const pw = ctx.measureText(tag).width + 12;
