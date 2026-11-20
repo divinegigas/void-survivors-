@@ -19,6 +19,8 @@ Open `www/index.html` in a browser. Arrow keys or WASD move, 1/2/3 pick an upgra
 2. **Loadout + bounties** (done): 4 weapon + 4 passive slots, 12 weapons, 12 passives, level-up cards
    that are a coin flip between "upgrade" and "new system", credits per kill, capital-ship bosses,
    and the Hangar shop for permanent upgrades between runs (saved on the phone).
-3. **Feel pass**: tune difficulty, sound effects and music, screen effects.
-4. **Real Android app**: wrap `www/` with Capacitor and build the APK on GitHub (no Android Studio needed).
-5. **More content**: more bosses and enemy patterns, weapon evolutions.
+3. **Ships + rarity** (done): 12 ships (one per weapon, unlocked in the Hangar by tier), common /
+   uncommon / rare tiers (green / purple / gold) for weapons and passives, Deflector Shield in the Hangar.
+4. **Feel pass**: tune difficulty, sound effects and music, screen effects.
+5. **Real Android app**: wrap `www/` with Capacitor and build the APK on GitHub (no Android Studio needed).
+6. **More content**: more bosses and enemy patterns, weapon evolutions.

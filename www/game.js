@@ -21,7 +21,10 @@ const CFG = {
     magnetRadius: 34,         // how close you must fly to pull in XP crystals
   },
 
-  slots: { weapons: 4, passives: 4 },
+  slots: { weapons: 4, passives: 4 },   // your ship's signature weapon is a bonus slot on top
+  rarityWeights: { common: 4, uncommon: 2, rare: 1 },   // common is 2x as likely as uncommon, which is 2x rare
+  shipCost: { common: 150, uncommon: 450, rare: 1000 }, // credits to unlock a ship, by its weapon's tier
+  deflectorRecharge: [0, 40, 32, 25, 19, 14],            // Deflector Shield recharge seconds per Hangar level
   maxLevel: 5,                // max level for weapons and most passives
   upgradeChoices: 3,
   postLevelUpInvuln: 0.8,     // grace after picking an upgrade (finger needs to find the ship)
@@ -76,6 +79,12 @@ function compact(arr) {          // remove dead things without allocating a new 
 }
 function buzz(ms) { try { navigator.vibrate && navigator.vibrate(ms); } catch (e) {} }
 
+const TIER = {
+  common:   { name: 'COMMON',   color: '#5dff9e' },
+  uncommon: { name: 'UNCOMMON', color: '#b26bff' },
+  rare:     { name: 'RARE',     color: '#ffd23f' },
+};
+
 const FONT = '"Orbitron", "Segoe UI", system-ui, sans-serif';
 const COL = {
   bg: '#05030f', player: '#3df5ff', playerDark: '#0b2a44', flame: '#ff4fd8',
@@ -92,6 +101,12 @@ function loadMeta() {
   if (!m || typeof m !== 'object') m = {};
   m.bank = m.bank || 0;
   m.lv = m.lv || {};
+  m.ship = m.ship || 'vesper';
+  m.ships = m.ships || { vesper: true };
+  if (m.lv.shield) {          // the old cheap "Launch Shield" is gone: refund what was spent on it
+    for (let k = 0; k < m.lv.shield; k++) m.bank += Math.round(40 * Math.pow(1.8, k));
+    delete m.lv.shield;
+  }
   if (!m.best) { try { m.best = parseFloat(localStorage.getItem('starburn.best')) || 0; } catch (e) { m.best = 0; } }
   return m;
 }
@@ -107,9 +122,12 @@ const HANGAR = [
   { id: 'magnet',  name: 'Magnet Coils',       desc: '+10% crystal pickup range',    max: 5,  base: 15, growth: 1.4 },
   { id: 'xp',      name: 'Flight Recorder',    desc: '+6% XP',                       max: 5,  base: 25, growth: 1.45 },
   { id: 'credits', name: 'Salvage Rights',     desc: '+10% credits from bounties',   max: 5,  base: 30, growth: 1.5 },
-  { id: 'shield',  name: 'Launch Shield',      desc: '+5s shield at the start of a run', max: 3, base: 40, growth: 1.8 },
   { id: 'reroll',  name: 'Reroll Chip',        desc: '+1 reroll of level-up cards per run', max: 3, base: 80, growth: 2 },
   { id: 'revive',  name: 'Second Wind',        desc: 'Survive one fatal hit per run', max: 1, base: 400, growth: 1 },
+  { id: 'deflector', name: 'Deflector Shield', max: 5, base: 500, growth: 1.6,
+    desc: l => { const r = CFG.deflectorRecharge;
+      return l === 0 ? `Blocks one hit, recharges in ${r[1]}s` : l >= 5 ? `Blocks one hit, recharges in ${r[5]}s`
+                     : `Faster recharge: ${r[l]}s → ${r[l + 1]}s`; } },
 ];
 const hangarCost = h => Math.round(h.base * Math.pow(h.growth, ML(h.id)));
 
@@ -245,7 +263,7 @@ const UP = -Math.PI / 2;
 
 const WEAPONS = {
   spread: {
-    name: 'Spread Shot', color: '#ffd23f', glyph: '✶',
+    name: 'Spread Shot', color: '#ffd23f', glyph: '✶', tier: 'common',
     levels: ['Fires a fan of 3 shots', '4 shots, wider', '5 shots, more damage', '6 shots, faster', '7 shots, max fan'],
     update(w, dt) {
       if ((w.t -= dt) > 0) return;
@@ -256,7 +274,7 @@ const WEAPONS = {
   },
 
   rockets: {
-    name: 'Homing Rockets', color: '#ff8a3d', glyph: '➶',
+    name: 'Homing Rockets', color: '#ff8a3d', glyph: '➶', tier: 'common',
     levels: ['Seeker missiles hunt enemies down', '2 rockets per salvo', 'Bigger blasts, faster reload', '3 rockets per salvo', 'Heavy warheads'],
     update(w, dt) {
       if ((w.t -= dt) > 0) return;
@@ -272,7 +290,7 @@ const WEAPONS = {
   },
 
   laser: {
-    name: 'Pulse Laser', color: '#c86bff', glyph: '┃',
+    name: 'Pulse Laser', color: '#c86bff', glyph: '┃', tier: 'uncommon',
     levels: ['Periodic beam burns everything above you', 'Wider beam', 'Longer pulses', 'More damage, faster recharge', 'Mega beam'],
     update(w, dt) {
       if (w.on > 0) {
@@ -290,7 +308,7 @@ const WEAPONS = {
   },
 
   wing: {
-    name: 'Wing Cannons', color: '#3df5ff', glyph: '⇈',
+    name: 'Wing Cannons', color: '#3df5ff', glyph: '⇈', tier: 'common',
     levels: ['Two escort pods copy your main gun', 'Pods hit harder', 'Pods fire faster', 'Pods hit even harder', 'Pods at full power'],
     update(w, dt) {
       if ((w.t -= dt) > 0) return;
@@ -298,11 +316,11 @@ const WEAPONS = {
       const dmg = CFG.player.damage * (0.4 + 0.15 * w.lvl);
       for (const side of [-1, 1]) gunShot(S.p.x + side * 24, S.p.y - 4, UP, CFG.player.bulletSpeed, dmg, this.color);
     },
-    draw(w) { for (const s of [-1, 1]) drawShip(S.p.x + s * 24, S.p.y + 4, 0.5, COL.playerDark, this.color); },
+    draw(w) { for (const s of [-1, 1]) drawShip(S.p.x + s * 24, S.p.y + 4, 0.5, S.ship); },
   },
 
   nova: {
-    name: 'Nova Burst', color: '#fff36b', glyph: '✺',
+    name: 'Nova Burst', color: '#fff36b', glyph: '✺', tier: 'rare',
     levels: ['Shockwave every few seconds; erases bullets', 'Bigger blast', 'More often', 'More damage', 'Huge, frequent blasts'],
     update(w, dt) {
       if ((w.t -= dt) > 0) return;
@@ -313,7 +331,7 @@ const WEAPONS = {
   },
 
   orbit: {
-    name: 'Orbit Shards', color: '#62ffd0', glyph: '❂',
+    name: 'Orbit Shards', color: '#62ffd0', glyph: '❂', tier: 'uncommon',
     levels: ['2 blades circle your ship and block bullets', '3 blades', 'Faster spin, more damage', '4 blades', '5 blades, max damage'],
     update(w, dt) {
       w.a = (w.a || 0) + dt * (2.6 + 0.25 * w.lvl);
@@ -346,7 +364,7 @@ const WEAPONS = {
   },
 
   chain: {
-    name: 'Arc Lightning', color: '#8fb8ff', glyph: 'ϟ',
+    name: 'Arc Lightning', color: '#8fb8ff', glyph: 'ϟ', tier: 'rare',
     levels: ['Zaps the nearest enemy, jumps to 2 more', 'Jumps to 3 more', 'More damage, faster', 'Jumps to 5 more', 'Storm: jumps to 7 more'],
     update(w, dt) {
       if ((w.t -= dt) > 0) return;
@@ -367,7 +385,7 @@ const WEAPONS = {
   },
 
   rail: {
-    name: 'Railgun', color: '#ff5df0', glyph: '↟',
+    name: 'Railgun', color: '#ff5df0', glyph: '↟', tier: 'rare',
     levels: ['Slow, huge shot that pierces everything', 'More damage', 'Faster reload', 'Much more damage', 'Twin rails'],
     update(w, dt) {
       if ((w.t -= dt) > 0) return;
@@ -382,7 +400,7 @@ const WEAPONS = {
   },
 
   flak: {
-    name: 'Flak Burst', color: '#ff6b6b', glyph: '✹',
+    name: 'Flak Burst', color: '#ff6b6b', glyph: '✹', tier: 'common',
     levels: ['Shells that burst into shrapnel', 'More shrapnel', 'Faster reload', 'Bigger bursts', 'Twin shells'],
     update(w, dt) {
       if ((w.t -= dt) > 0) return;
@@ -397,7 +415,7 @@ const WEAPONS = {
   },
 
   disc: {
-    name: 'Ricochet Disc', color: '#b8ff5d', glyph: '◐',
+    name: 'Ricochet Disc', color: '#b8ff5d', glyph: '◐', tier: 'common',
     levels: ['Disc that bounces off the screen edges', 'Lasts longer, more damage', '2 discs', 'Bigger discs', '3 discs'],
     update(w, dt) {
       if ((w.t -= dt) > 0) return;
@@ -413,7 +431,7 @@ const WEAPONS = {
   },
 
   wave: {
-    name: 'Plasma Wave', color: '#5d9dff', glyph: '⌒',
+    name: 'Plasma Wave', color: '#5d9dff', glyph: '⌒', tier: 'uncommon',
     levels: ['Wide, slow wave that pierces everything', 'Wider wave', 'Faster waves', 'More damage', 'Double waves'],
     update(w, dt) {
       if ((w.t -= dt) > 0) return;
@@ -427,7 +445,7 @@ const WEAPONS = {
   },
 
   drone: {
-    name: 'Hunter Drones', color: '#d6dcff', glyph: '◇',
+    name: 'Hunter Drones', color: '#d6dcff', glyph: '◇', tier: 'uncommon',
     levels: ['A drone that shoots at nearby enemies', 'Faster drone fire', '2 drones', 'More damage', '3 drones'],
     update(w, dt) {
       const n = Math.min(4, 1 + Math.floor((w.lvl - 1) / 2) + S.mod.count);
@@ -463,27 +481,49 @@ const WEAPONS = {
 // Passives (12). levels[i] describes what level i+1 gives.
 // ============================================================================
 const PASSIVES = {
-  rapid:    { name: 'Rapid Fire',         glyph: '»', color: '#3df5ff', levels: Array(5).fill('-10% weapon cooldowns') },
-  power:    { name: 'Power Core',         glyph: '▲', color: '#ff5d5d', levels: Array(5).fill('+12% damage') },
-  area:     { name: 'Blast Amplifier',    glyph: '◎', color: '#ffb35d', levels: Array(5).fill('+15% blast radius and weapon size') },
-  multi:    { name: 'Multishot',          glyph: '⁂', color: '#ffd23f',
+  rapid:    { name: 'Rapid Fire',         glyph: '»', color: '#3df5ff', tier: 'common', levels: Array(5).fill('-10% weapon cooldowns') },
+  power:    { name: 'Power Core',         glyph: '▲', color: '#ff5d5d', tier: 'common', levels: Array(5).fill('+12% damage') },
+  area:     { name: 'Blast Amplifier',    glyph: '◎', color: '#ffb35d', tier: 'uncommon', levels: Array(5).fill('+15% blast radius and weapon size') },
+  multi:    { name: 'Multishot',          glyph: '⁂', color: '#ffd23f', tier: 'rare',
               levels: ['+1 projectile for most weapons', '+5% damage', '+2 projectiles', '+5% damage', '+3 projectiles'] },
-  velocity: { name: 'Velocity Rounds',    glyph: '➤', color: '#9dffef',
+  velocity: { name: 'Velocity Rounds',    glyph: '➤', color: '#9dffef', tier: 'uncommon',
               levels: ['+15% projectile speed', '+15% projectile speed', '+15% speed, bullets pierce 1 enemy', '+15% projectile speed', '+15% speed, bullets pierce 2 enemies'] },
-  crit:     { name: 'Targeting Computer', glyph: '⌖', color: '#ffe45d', levels: Array(5).fill('+7% chance of double damage') },
-  shield:   { name: 'Shield Generator',   glyph: '◯', color: '#6bd6ff',
-              levels: ['Bubble that blocks one hit, recharges in 23s', 'Recharges in 20s', 'Recharges in 17s', 'Recharges in 14s', 'Recharges in 11s'] },
-  plating:  { name: 'Hull Plating',       glyph: '⬢', color: '#b9c4ff', max: 3, levels: Array(3).fill('+1 max hull (and repair 1)') },
-  repair:   { name: 'Nano Repair',        glyph: '✚', color: '#5dff9e',
+  crit:     { name: 'Targeting Computer', glyph: '⌖', color: '#ffe45d', tier: 'rare', levels: Array(5).fill('+7% chance of double damage') },
+  reactive: { name: 'Reactive Armor',     glyph: '✸', color: '#ff9d5d', tier: 'uncommon',
+              levels: ['Getting hit blasts nearby enemies and bullets away', 'Bigger blast', 'Longer safety blink after a hit', 'Bigger, stronger blast', 'Massive blast'] },
+  plating:  { name: 'Hull Plating',       glyph: '⬢', color: '#b9c4ff', tier: 'common', max: 3, levels: Array(3).fill('+1 max hull (and repair 1)') },
+  repair:   { name: 'Nano Repair',        glyph: '✚', color: '#5dff9e', tier: 'rare',
               levels: ['Repair 1 hull every 45s', 'Every 38s', 'Every 31s', 'Every 24s', 'Every 17s'] },
-  tractor:  { name: 'Tractor Beam',       glyph: '⊕', color: '#5dff9e', levels: Array(5).fill('+30% crystal pickup range') },
-  datacore: { name: 'Data Core',          glyph: '◈', color: '#c86bff', levels: Array(5).fill('+10% XP') },
-  bounty:   { name: 'Bounty Hunter',      glyph: '$', color: '#ffd23f', levels: Array(5).fill('+20% credits from kills') },
+  tractor:  { name: 'Tractor Beam',       glyph: '⊕', color: '#5dff9e', tier: 'common', levels: Array(5).fill('+30% crystal pickup range') },
+  datacore: { name: 'Data Core',          glyph: '◈', color: '#c86bff', tier: 'common', levels: Array(5).fill('+10% XP') },
+  bounty:   { name: 'Bounty Hunter',      glyph: '$', color: '#ffd23f', tier: 'uncommon', levels: Array(5).fill('+20% credits from kills') },
 };
 const passiveMax = id => PASSIVES[id].max || CFG.maxLevel;
 const PL = id => (S.passives[id] ? S.passives[id].lvl : 0);
-const shieldRecharge = () => 26 - 3 * PL('shield');
+const shieldRecharge = () => CFG.deflectorRecharge[ML('deflector')];
 const repairEvery = () => 52 - 7 * PL('repair');
+
+// ============================================================================
+// Ships (12): one per weapon. Each starts with its signature weapon in a bonus
+// slot, on top of the basic forward cannon every ship has. Unlock in the Hangar.
+// ============================================================================
+const SHIPS = {
+  vesper:   { name: 'VESPER',   weapon: 'spread',  color: '#3df5ff', shape: [0,-16, 5,-4, 14,8, 5,6, 0,10, -5,6, -14,8, -5,-4] },
+  trident:  { name: 'TRIDENT',  weapon: 'wing',    color: '#5dc8ff', shape: [0,-17, 3,-6, 9,-12, 10,2, 15,6, 6,8, 0,11, -6,8, -15,6, -10,2, -9,-12, -3,-6] },
+  hornet:   { name: 'HORNET',   weapon: 'rockets', color: '#ff8a3d', shape: [0,-14, 6,-6, 16,-2, 12,6, 4,4, 0,13, -4,4, -12,6, -16,-2, -6,-6] },
+  bulwark:  { name: 'BULWARK',  weapon: 'flak',    color: '#ff6b6b', shape: [-5,-15, 5,-15, 8,-6, 15,-4, 15,8, 6,10, -6,10, -15,8, -15,-4, -8,-6] },
+  halo:     { name: 'HALO',     weapon: 'disc',    color: '#b8ff5d', shape: [0,-16, 8,-10, 13,-1, 11,8, 0,12, -11,8, -13,-1, -8,-10] },
+  tide:     { name: 'TIDE',     weapon: 'wave',    color: '#5d9dff', shape: [0,-15, 6,-2, 16,6, 16,11, 6,6, 0,9, -6,6, -16,11, -16,6, -6,-2] },
+  hive:     { name: 'HIVE',     weapon: 'drone',   color: '#d6dcff', shape: [0,-15, 10,-8, 10,6, 0,12, -10,6, -10,-8] },
+  lance:    { name: 'LANCE',    weapon: 'laser',   color: '#c86bff', shape: [0,-20, 3,-6, 8,6, 3,5, 0,10, -3,5, -8,6, -3,-6] },
+  corona:   { name: 'CORONA',   weapon: 'orbit',   color: '#62ffd0', shape: [0,-15, 4,-8, 12,-8, 15,0, 12,8, 4,8, 0,12, -4,8, -12,8, -15,0, -12,-8, -4,-8] },
+  tempest:  { name: 'TEMPEST',  weapon: 'chain',   color: '#8fb8ff', shape: [0,-16, 4,-6, 14,-10, 9,0, 16,6, 5,6, 0,11, -5,6, -16,6, -9,0, -14,-10, -4,-6] },
+  needle:   { name: 'NEEDLE',   weapon: 'rail',    color: '#ff5df0', shape: [0,-22, 2,-8, 10,4, 10,8, 2,6, 0,10, -2,6, -10,8, -10,4, -2,-8] },
+  pulsar:   { name: 'PULSAR',   weapon: 'nova',    color: '#fff36b', shape: [0,-16, 4,-5, 15,-3, 6,4, 9,12, 0,7, -9,12, -6,4, -15,-3, -4,-5] },
+};
+const shipTier = id => WEAPONS[SHIPS[id].weapon].tier;
+const shipCost = id => (id === 'vesper' ? 0 : CFG.shipCost[shipTier(id)]);
+const curShip = () => SHIPS[META.ship] || SHIPS.vesper;
 
 // All modifiers in one place: hangar upgrades + passives.
 function recalcMods() {
@@ -518,7 +558,7 @@ function newGame(state) {
   S = {
     state: state || 'play',     // title | hangar | play | levelup | paused | over
     t: 0, kills: 0, level: 1, xp: 0, shake: 0, credits: 0,
-    p: { x: W / 2, y: H * 0.78, hp: 0, maxHp: 0, invuln: 0, shield: 0, shieldMax: 1, fireT: 0,
+    p: { x: W / 2, y: H * 0.78, hp: 0, maxHp: 0, invuln: 0, fireT: 0,
          fireInterval: 0, magnet: 0, bubble: false, bubbleT: 0, repairT: 0 },
     weapons: {}, passives: {}, mod: null,
     bullets: [], ebullets: [], enemies: [], orbs: [], parts: [], novas: [], zaps: [], texts: [], laser: null,
@@ -528,7 +568,9 @@ function newGame(state) {
   };
   recalcMods();
   S.p.hp = S.p.maxHp;
-  S.p.shield = S.p.shieldMax = 5 * ML('shield');
+  S.p.bubble = ML('deflector') > 0;
+  S.ship = curShip();
+  S.weapons[S.ship.weapon] = { lvl: 1, t: 0, on: 0, builtin: true };
   input.dx = input.dy = 0;
 }
 
@@ -730,14 +772,19 @@ function flakBurst(b) {
 // ============================================================================
 function damagePlayer() {
   const p = S.p;
-  if (p.invuln > 0 || p.shield > 0) return false;
-  if (p.bubble) {                       // Shield Generator soaks one hit
-    p.bubble = false; p.bubbleT = shieldRecharge(); p.invuln = 0.5;
+  if (p.invuln > 0) return false;
+  if (p.bubble) {                       // Deflector Shield soaks one hit, then recharges
+    p.bubble = false; p.bubbleT = shieldRecharge(); p.invuln = 0.6;
     sparks(p.x, p.y, '#6bd6ff', 18); buzz(40);
+    clearBulletsNear(p.x, p.y, 40);
     return true;
   }
   p.hp--;
-  p.invuln = CFG.player.invulnTime;
+  p.invuln = CFG.player.invulnTime * (PL('reactive') >= 3 ? 1.5 : 1);
+  if (PL('reactive')) {                 // Reactive Armor: blast on hit
+    const l = PL('reactive'), r = 60 + 15 * l + (l >= 5 ? 40 : 0);
+    S.novas.push({ x: p.x, y: p.y, r: 0, max: r, dmg: 30 + 20 * l, age: 0, hit: new Set(), color: PASSIVES.reactive.color });
+  }
   S.shake = 0.4;
   buzz(p.hp > 0 ? 90 : 300);
   sparks(p.x, p.y, COL.player, 20);
@@ -794,11 +841,18 @@ function gameOver(quit) {
 // Level-ups: each card is a coin flip between "upgrade something you own"
 // and "add a new system" (while you have a free slot).
 // ============================================================================
+const slotWeapons = () => Object.keys(S.weapons).filter(id => !S.weapons[id].builtin);
+function pickWeighted(arr) {      // rarer things show up less often
+  const wts = arr.map(c => CFG.rarityWeights[(WEAPONS[c.id] || PASSIVES[c.id]).tier]);
+  let r = Math.random() * wts.reduce((a, b) => a + b, 0);
+  for (let i = 0; i < arr.length; i++) if ((r -= wts[i]) <= 0) return arr.splice(i, 1)[0];
+  return arr.pop();
+}
 function buildChoices() {
   const ups = [], newW = [], newP = [];
   for (const id in S.weapons) if (S.weapons[id].lvl < CFG.maxLevel) ups.push({ kind: 'wup', id });
   for (const id in S.passives) if (S.passives[id].lvl < passiveMax(id)) ups.push({ kind: 'pup', id });
-  if (Object.keys(S.weapons).length < CFG.slots.weapons)
+  if (slotWeapons().length < CFG.slots.weapons)
     for (const id in WEAPONS) if (!S.weapons[id]) newW.push({ kind: 'wnew', id });
   if (Object.keys(S.passives).length < CFG.slots.passives)
     for (const id in PASSIVES) if (!S.passives[id]) newP.push({ kind: 'pnew', id });
@@ -810,7 +864,7 @@ function buildChoices() {
     const wantNew = hasNew && (!ups.length || Math.random() < 0.5);
     if (wantNew) {
       const src = newW.length && newP.length ? (Math.random() < 0.5 ? newW : newP) : (newW.length ? newW : newP);
-      out.push(pickOut(src));
+      out.push(pickWeighted(src));
     } else out.push(pickOut(ups));
   }
   // Everything maxed and slots full: fillers.
@@ -820,19 +874,20 @@ function buildChoices() {
 }
 
 function choiceInfo(c) {
-  const nW = Object.keys(S.weapons).length, nP = Object.keys(S.passives).length;
+  const nW = slotWeapons().length, nP = Object.keys(S.passives).length;
   if (c.kind === 'fill') {
     return c.id === 'repair'
       ? { title: 'Field Repair', desc: 'Restore 1 hull point', glyph: '✚', color: COL.xp, tag: 'BONUS' }
       : { title: 'Salvage Cache', desc: '+15 credits', glyph: '$', color: COL.gold, tag: 'BONUS' };
   }
   const isW = c.kind === 'wup' || c.kind === 'wnew';
-  const d = isW ? WEAPONS[c.id] : PASSIVES[c.id];
-  if (c.kind === 'wnew') return { title: d.name, desc: d.levels[0], glyph: d.glyph, color: d.color, tag: `NEW WEAPON · SLOT ${nW + 1}/${CFG.slots.weapons}` };
-  if (c.kind === 'pnew') return { title: d.name, desc: d.levels[0], glyph: d.glyph, color: d.color, tag: `NEW PASSIVE · SLOT ${nP + 1}/${CFG.slots.passives}` };
+  const d = isW ? WEAPONS[c.id] : PASSIVES[c.id], t = TIER[d.tier];
+  const base = { title: d.name, glyph: d.glyph, color: t.color, icon: d.color, tier: t.name };
+  if (c.kind === 'wnew') return Object.assign(base, { desc: d.levels[0], tag: `NEW WEAPON · ${nW + 1}/${CFG.slots.weapons}` });
+  if (c.kind === 'pnew') return Object.assign(base, { desc: d.levels[0], tag: `NEW PASSIVE · ${nP + 1}/${CFG.slots.passives}` });
   const lvl = isW ? S.weapons[c.id].lvl : S.passives[c.id].lvl;
-  return { title: d.name, desc: d.levels[lvl], glyph: d.glyph, color: d.color,
-           tag: `${isW ? 'WEAPON' : 'PASSIVE'} UPGRADE · LV ${lvl} → ${lvl + 1}` };
+  const sig = isW && S.weapons[c.id].builtin ? 'SHIP ' : '';
+  return Object.assign(base, { desc: d.levels[lvl], tag: `${sig}${isW ? 'WEAPON' : 'PASSIVE'} · LV ${lvl} → ${lvl + 1}` });
 }
 
 function openLevelUp() {
@@ -865,7 +920,6 @@ function choose(i) {
   const before = p.maxHp;
   recalcMods();
   if (p.maxHp > before) p.hp += p.maxHp - before;       // Hull Plating repairs too
-  if (c.id === 'shield' && (c.kind === 'pnew')) p.bubble = true;
   if (c.id === 'repair' && c.kind === 'pnew') p.repairT = repairEvery();
   S.pending--;
   if (S.pending > 0) openLevelUp();
@@ -895,10 +949,9 @@ function gameUpdate(dt) {
   p.x = clamp(p.x, 12, W - 12);
   p.y = clamp(p.y, 100, H - 20);
   p.invuln = Math.max(0, p.invuln - dt);
-  p.shield = Math.max(0, p.shield - dt);
 
   // --- passive timers
-  if (S.passives.shield && !p.bubble && (p.bubbleT -= dt) <= 0) { p.bubble = true; buzz(15); }
+  if (ML('deflector') && !p.bubble && (p.bubbleT -= dt) <= 0) { p.bubble = true; buzz(15); }
   if (S.passives.repair && (p.repairT -= dt) <= 0) {
     p.repairT = repairEvery();
     if (p.hp < p.maxHp) { p.hp++; floatText(p.x, p.y - 26, '+1 HULL', COL.xp, 11); }
@@ -945,16 +998,13 @@ function gameUpdate(dt) {
   }
 
   // --- enemy bullets
-  const shieldR = 20;
   for (const b of S.ebullets) {
     if (b.dead) continue;
     b.x += b.vx * dt;
     b.y += b.vy * dt;
     if (b.y < -20 || b.y > H + 20 || b.x < -20 || b.x > W + 20) { b.dead = true; continue; }
     const dx = b.x - p.x, dy = b.y - p.y, d2 = dx * dx + dy * dy;
-    if (p.shield > 0) {
-      if (d2 < (shieldR + b.r) ** 2) { b.dead = true; sparks(b.x, b.y, '#6bd6ff', 3); }
-    } else if (d2 < (CFG.player.hitRadius + b.r * 0.6) ** 2 && p.invuln <= 0) {
+    if (d2 < (CFG.player.hitRadius + b.r * 0.6) ** 2 && p.invuln <= 0) {
       b.dead = true;
       damagePlayer();
     }
@@ -1044,6 +1094,7 @@ function update(dt) {
   updateStars(S && S.state === 'play' ? dt * 1.6 : dt * 0.6);
   if (!S) return;
   if (S.flash && (S.flash.t -= dt) <= 0) S.flash = null;
+  if (S.armed && (S.armed.t -= dt) <= 0) S.armed = null;
   if (S.state === 'play') gameUpdate(dt);
   else {
     S.uiLock -= dt;
@@ -1061,15 +1112,18 @@ function path(points) {
   ctx.closePath();
 }
 
-function drawShip(x, y, scale, body, edge) {
+function drawShip(x, y, scale, ship, locked) {
+  ship = ship || SHIPS.vesper;
   ctx.save();
   ctx.translate(x, y);
   ctx.scale(scale, scale);
-  path([0, -16, 5, -4, 14, 8, 5, 6, 0, 10, -5, 6, -14, 8, -5, -4]);
-  ctx.fillStyle = body; ctx.fill();
-  ctx.lineWidth = 1.5; ctx.strokeStyle = edge; ctx.stroke();
-  ctx.fillStyle = '#c8fbff';
-  ctx.beginPath(); ctx.ellipse(0, -4, 2.2, 4, 0, 0, TAU); ctx.fill();
+  path(ship.shape);
+  ctx.fillStyle = locked ? '#08070f' : '#0b1a33'; ctx.fill();
+  ctx.lineWidth = 1.5; ctx.strokeStyle = locked ? '#ffffff30' : ship.color; ctx.stroke();
+  if (!locked) {
+    ctx.fillStyle = '#e8fbff';
+    ctx.beginPath(); ctx.ellipse(0, -4, 2.2, 4, 0, 0, TAU); ctx.fill();
+  }
   ctx.restore();
 }
 
@@ -1078,30 +1132,29 @@ function drawPlayer() {
   const blink = p.invuln > 0 && Math.floor(p.invuln * 16) % 2 === 0;
   ctx.globalCompositeOperation = 'lighter';
   glow(p.x, p.y + 12, 12, COL.flame, 0.8);
-  glow(p.x, p.y, 26, COL.player, 0.25);
+  glow(p.x, p.y, 26, S.ship.color, 0.25);
   ctx.globalCompositeOperation = 'source-over';
   const f = rand(6, 12);
   ctx.fillStyle = '#ffb3f3';
   path([p.x - 3.5, p.y + 9, p.x + 3.5, p.y + 9, p.x, p.y + 9 + f]);
   ctx.fill();
-  if (!blink) drawShip(p.x, p.y, 1, COL.playerDark, COL.player);
+  if (!blink) drawShip(p.x, p.y, 1, S.ship);
   for (const id in S.weapons) if (WEAPONS[id].draw) WEAPONS[id].draw(S.weapons[id]);
   // hitbox dot: this is the only part that can be hit
   ctx.fillStyle = '#ffffff';
   ctx.beginPath(); ctx.arc(p.x, p.y, CFG.player.hitRadius - 1, 0, TAU); ctx.fill();
   ctx.strokeStyle = COL.flame; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.arc(p.x, p.y, CFG.player.hitRadius + 0.5, 0, TAU); ctx.stroke();
+  // Deflector Shield: full ring when ready, a filling arc while it recharges
   if (p.bubble) {
-    ctx.strokeStyle = '#6bd6ff'; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.45 + 0.15 * Math.sin(S.t * 5);
-    ctx.beginPath(); ctx.arc(p.x, p.y, 17, 0, TAU); ctx.stroke();
+    ctx.strokeStyle = '#6bd6ff'; ctx.lineWidth = 2; ctx.globalAlpha = 0.55 + 0.2 * Math.sin(S.t * 5);
+    ctx.beginPath(); ctx.arc(p.x, p.y, 19, 0, TAU); ctx.stroke();
     ctx.globalAlpha = 1;
-  }
-  if (p.shield > 0) {
-    const a = p.shield < 2 ? (Math.floor(p.shield * 8) % 2 ? 0.25 : 0.7) : 0.6;
-    ctx.strokeStyle = '#6bd6ff'; ctx.lineWidth = 2; ctx.globalAlpha = a;
-    ctx.beginPath(); ctx.arc(p.x, p.y, 20, 0, TAU); ctx.stroke();
+  } else if (ML('deflector')) {
+    const f = clamp(1 - p.bubbleT / shieldRecharge(), 0, 1);
+    ctx.strokeStyle = '#6bd6ff'; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.3;
+    ctx.beginPath(); ctx.arc(p.x, p.y, 19, UP, UP + TAU * f); ctx.stroke();
     ctx.globalAlpha = 1;
-    ctx.beginPath(); ctx.arc(p.x, p.y, 23, UP, UP + TAU * (p.shield / p.shieldMax)); ctx.stroke();
   }
 }
 
@@ -1258,7 +1311,7 @@ function drawWorld() {
   ctx.globalCompositeOperation = 'source-over';
 
   if (S.state !== 'over' && S.state !== 'title' && S.state !== 'hangar') drawPlayer();
-  if (S.state === 'title') drawShip(W / 2, H * 0.58 + Math.sin(performance.now() / 500) * 4, 1.6, COL.playerDark, COL.player);
+  if (S.state === 'title') drawShip(W / 2, H * 0.52 + Math.sin(performance.now() / 500) * 4, 1.6, curShip());
 
   // Enemy bullets last, so they're never hidden behind anything
   for (const b of S.ebullets) ctx.drawImage(eShotSprite, b.x - 12, b.y - 12, 24, 24);
@@ -1278,12 +1331,13 @@ function fmtTime(t) {
 
 const PAUSE_BTN = { x: W - 44, y: 8, w: 40, h: 40 };
 
-function drawSlot(x, y, def, lvl, max) {
+function drawSlot(x, y, def, lvl, max, builtin) {
   const s = 22;
   roundRect(x, y, s, s, 4);
   if (def) {
-    ctx.fillStyle = '#0e0a24cc'; ctx.fill();
-    ctx.strokeStyle = def.color; ctx.lineWidth = 1.2; ctx.stroke();
+    const tc = TIER[def.tier].color;
+    ctx.fillStyle = builtin ? tc + '30' : '#0e0a24cc'; ctx.fill();
+    ctx.strokeStyle = tc; ctx.lineWidth = builtin ? 2 : 1.2; ctx.stroke();
     ctx.font = '700 13px system-ui, sans-serif';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillStyle = def.color;
@@ -1321,25 +1375,27 @@ function drawHud() {
   ctx.fillText(`${Math.floor(S.credits)} CR`, W - 48, 22);
   ctx.font = `500 10px ${FONT}`;
   ctx.fillStyle = COL.dim;
-  ctx.fillText(`${S.kills} KILLS`, W - 48, 38);
+  ctx.textAlign = 'center';
+  ctx.fillText(`${S.kills} KILLS`, W / 2, 38);
 
-  // hull pips, centred under the timer
+  // hull pips, top right under the credits
   for (let i = 0; i < p.maxHp; i++) {
-    const x = W / 2 - (p.maxHp - 1) * 6 + i * 12, y = 39;
+    const x = W - 14 - (p.maxHp - 1 - i) * 12, y = 40;
     path([x, y - 5, x + 5, y, x, y + 5, x - 5, y]);
     if (i < p.hp) { ctx.fillStyle = COL.player; ctx.fill(); }
     else { ctx.strokeStyle = '#3df5ff55'; ctx.lineWidth = 1; ctx.stroke(); }
   }
 
-  // Loadout: 4 weapon slots, 4 passive slots
-  const wIds = Object.keys(S.weapons), pIds = Object.keys(S.passives);
+  // Loadout: ship's signature weapon (bold), then 4 weapon slots; 4 passive slots below
+  const sig = S.ship.weapon, wIds = slotWeapons(), pIds = Object.keys(S.passives);
+  drawSlot(8, 36, WEAPONS[sig], S.weapons[sig].lvl, CFG.maxLevel, true);
   for (let i = 0; i < CFG.slots.weapons; i++) {
     const id = wIds[i];
-    drawSlot(8 + i * 27, 36, id && WEAPONS[id], id && S.weapons[id].lvl, CFG.maxLevel);
+    drawSlot(40 + i * 27, 36, id && WEAPONS[id], id && S.weapons[id].lvl, CFG.maxLevel);
   }
   for (let i = 0; i < CFG.slots.passives; i++) {
     const id = pIds[i];
-    drawSlot(8 + i * 27, 63, id && PASSIVES[id], id && S.passives[id].lvl, id && passiveMax(id));
+    drawSlot(40 + i * 27, 63, id && PASSIVES[id], id && S.passives[id].lvl, id && passiveMax(id));
   }
 
   // pause button
@@ -1433,7 +1489,7 @@ function drawLevelUp() {
   const titleY = y0 - 78;
   neonText('LEVEL UP', W / 2, titleY, 34, COL.xp);
   smallText(`LEVEL ${S.choiceLevel}: CHOOSE ONE`, W / 2, titleY + 32, 11, COL.text, 700);
-  smallText(`WEAPONS ${Object.keys(S.weapons).length}/${CFG.slots.weapons}   ·   PASSIVES ${Object.keys(S.passives).length}/${CFG.slots.passives}`,
+  smallText(`WEAPONS ${slotWeapons().length}/${CFG.slots.weapons}   ·   PASSIVES ${Object.keys(S.passives).length}/${CFG.slots.passives}`,
             W / 2, titleY + 52, 9, COL.dim, 700);
 
   S.choices.forEach((c, i) => {
@@ -1452,12 +1508,13 @@ function drawLevelUp() {
     ctx.strokeStyle = info.color; ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.arc(ix, iy, 22, 0, TAU); ctx.stroke();
     ctx.font = '700 22px system-ui, sans-serif';
-    ctx.fillStyle = info.color; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = info.icon || info.color; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(info.glyph, ix, iy + 1);
     const tx = r.x + 74, tw = r.w - 86;
-    ctx.textAlign = 'left';
-    ctx.font = `700 8.5px ${FONT}`;
+    ctx.font = `800 8.5px ${FONT}`;
     ctx.fillStyle = info.color;
+    if (info.tier) { ctx.textAlign = 'right'; ctx.fillText(info.tier, r.x + r.w - 12, r.y + 18); }
+    ctx.textAlign = 'left';
     ctx.fillText(info.tag, tx, r.y + 18);
     ctx.font = `800 14px ${FONT}`;
     ctx.fillStyle = COL.text;
@@ -1478,20 +1535,87 @@ function drawTitle() {
   smallText('SHOOT  ·  SALVAGE  ·  EVOLVE', W / 2, cy + 38, 11, COL.player, 700);
   const lines = ['Drag anywhere to fly. You fire on your own.', 'Grab green crystals to level up.', 'Only the white dot can be hit.'];
   lines.forEach((l, i) => smallText(l, W / 2, cy + 80 + i * 20, 12, COL.text, 400));
+  const sh = curShip(), wp = WEAPONS[sh.weapon];
+  smallText(sh.name, W / 2, H * 0.52 + 36, 14, sh.color, 800);
+  smallText(`${wp.name} · ${TIER[wp.tier].name}`, W / 2, H * 0.52 + 54, 10, TIER[wp.tier].color, 700);
   const by = H * 0.7;
   drawButton('launch', 40, by, W - 80, 54, 'LAUNCH', COL.xp, startGame);
   drawButton('hangar', 40, by + 66, W - 80, 46, `HANGAR  ·  ${META.bank} CR`, COL.gold, openHangar);
   if (META.best > 0) smallText(`BEST TIME  ${fmtTime(META.best)}`, W / 2, by + 136, 11, COL.dim, 700);
 }
 
+let hangarTab = 'ships';
 function openHangar() { newGame('hangar'); S.uiLock = 0.15; }
+
+// Purchases need two taps: the first arms it ("TAP AGAIN"), the second buys.
+function confirmBuy(id, fn) {
+  if (S.armed && S.armed.id === id) { S.armed = null; fn(); }
+  else { S.armed = { id, t: 2.5 }; buzz(10); }
+}
+const isArmed = id => S.armed && S.armed.id === id;
 
 function drawHangar() {
   dim(0.5);
-  neonText('HANGAR', W / 2, 40, 30, COL.gold);
-  smallText(`${META.bank} CR CREDITS`, W / 2, 72, 13, COL.gold, 800);
-  smallText('Permanent upgrades for every future run', W / 2, 90, 10, COL.dim, 500);
-  const top = 106, bottom = H - 76;
+  neonText('HANGAR', W / 2, 34, 28, COL.gold);
+  smallText(`${META.bank} CR`, W / 2, 62, 14, COL.gold, 800);
+  const tw = (W - 44) / 2;
+  drawTab('tabShips', 16, 80, tw, 34, 'SHIPS', 'ships');
+  drawTab('tabUps', 28 + tw, 80, tw, 34, 'UPGRADES', 'upgrades');
+  if (hangarTab === 'ships') drawShipGrid(126, H - 76);
+  else drawUpgradeList(126, H - 76);
+  drawButton('back', 16, H - 64, tw, 48, 'BACK', COL.player, () => { newGame('title'); });
+  drawButton('launch', 28 + tw, H - 64, tw, 48, 'LAUNCH', COL.xp, startGame);
+}
+
+function drawTab(id, x, y, w, h, label, tab) {
+  const on = hangarTab === tab;
+  roundRect(x, y, w, h, 8);
+  ctx.fillStyle = on ? COL.gold + '30' : '#0e0a24cc'; ctx.fill();
+  ctx.strokeStyle = on ? COL.gold : '#ffffff26'; ctx.lineWidth = on ? 2 : 1; ctx.stroke();
+  smallText(label, x + w / 2, y + h / 2 + 1, 12, on ? COL.text : COL.dim, 800);
+  addButton(id, { x, y, w, h }, () => { hangarTab = tab; S.armed = null; });
+}
+
+function drawShipGrid(top, bottom) {
+  const ids = Object.keys(SHIPS), cols = 3, gap = 8;
+  const cw = (W - 24 - gap * (cols - 1)) / cols;
+  const chh = clamp((bottom - top - gap * 3) / 4, 80, 130);
+  ids.forEach((id, i) => {
+    const ship = SHIPS[id], wp = WEAPONS[ship.weapon], tc = TIER[wp.tier].color;
+    const owned = !!META.ships[id], sel = META.ship === id, cost = shipCost(id), afford = META.bank >= cost;
+    const r = { x: 12 + (i % cols) * (cw + gap), y: top + Math.floor(i / cols) * (chh + gap), w: cw, h: chh };
+    const flash = S.flash && S.flash.id === id, cx = r.x + r.w / 2;
+    roundRect(r.x, r.y, r.w, r.h, 8);
+    ctx.fillStyle = flash ? tc + '55' : sel ? tc + '22' : S.uiPress === 's' + i ? '#ffffff14' : '#0e0a24dd';
+    ctx.fill();
+    ctx.strokeStyle = owned ? tc : tc + '55';
+    ctx.lineWidth = sel ? 3 : 1;
+    ctx.stroke();
+    if (owned) {
+      ctx.globalCompositeOperation = 'lighter';
+      glow(cx, r.y + chh * 0.32, 24, ship.color, sel ? 0.5 : 0.25);
+      ctx.globalCompositeOperation = 'source-over';
+    }
+    drawShip(cx, r.y + chh * 0.32, 1.15, ship, !owned);
+    smallText(ship.name, cx, r.y + chh * 0.62, 10.5, owned ? COL.text : COL.dim, 800);
+    smallText(wp.name, cx, r.y + chh * 0.75, 8.5, tc, 700);
+    let label, lc;
+    if (owned) { label = sel ? 'SELECTED' : 'OWNED'; lc = sel ? COL.xp : COL.dim; }
+    else if (isArmed(id)) { label = 'TAP AGAIN'; lc = Math.floor(performance.now() / 200) % 2 ? COL.gold : COL.text; }
+    else { label = `${cost} CR`; lc = afford ? COL.gold : '#a0607a'; }
+    smallText(label, cx, r.y + chh * 0.89, 9.5, lc, 800);
+    addButton('s' + i, r, () => {
+      if (owned) { META.ship = id; saveMeta(); S.armed = null; buzz(10); }
+      else if (!afford) buzz(20);
+      else confirmBuy(id, () => {
+        META.bank -= cost; META.ships[id] = true; META.ship = id; saveMeta();
+        S.flash = { id, t: 0.4 }; buzz(40);
+      });
+    });
+  });
+}
+
+function drawUpgradeList(top, bottom) {
   const rowH = clamp((bottom - top) / HANGAR.length, 44, 62);
   HANGAR.forEach((h, i) => {
     const y = top + i * rowH, lv = ML(h.id), maxed = lv >= h.max, cost = hangarCost(h), afford = !maxed && META.bank >= cost;
@@ -1505,20 +1629,18 @@ function drawHangar() {
     ctx.font = `800 11.5px ${FONT}`; ctx.fillStyle = COL.text;
     ctx.fillText(h.name, r.x + 10, r.y + r.h * 0.34);
     ctx.font = '400 11px system-ui, sans-serif'; ctx.fillStyle = '#b8c2e0';
-    ctx.fillText(h.desc, r.x + 10, r.y + r.h * 0.72);
-    // level pips
+    ctx.fillText(typeof h.desc === 'function' ? h.desc(lv) : h.desc, r.x + 10, r.y + r.h * 0.72);
     const pipW = Math.min(7, 60 / h.max - 2);
     for (let k = 0; k < h.max; k++) {
       ctx.fillStyle = k < lv ? COL.gold : '#ffffff22';
-      ctx.fillRect(r.x + r.w - 80 - h.max * (pipW + 2) + k * (pipW + 2), r.y + r.h / 2 - 3, pipW, 6);
+      ctx.fillRect(r.x + r.w - 80 - h.max * (pipW + 2) + k * (pipW + 2), r.y + r.h * 0.34 - 3, pipW, 6);
     }
     ctx.textAlign = 'right'; ctx.font = `800 12px ${FONT}`;
-    ctx.fillStyle = maxed ? COL.dim : afford ? COL.gold : '#a0607a';
-    ctx.fillText(maxed ? 'MAX' : `${cost} CR`, r.x + r.w - 10, r.y + r.h / 2 + 1);
-    addButton('h' + i, r, () => buyHangar(h), !maxed);
+    const armed = isArmed(h.id);
+    ctx.fillStyle = maxed ? COL.dim : armed ? (Math.floor(performance.now() / 200) % 2 ? COL.gold : COL.text) : afford ? COL.gold : '#a0607a';
+    ctx.fillText(maxed ? 'MAX' : armed ? 'TAP AGAIN' : `${cost} CR`, r.x + r.w - 10, r.y + r.h / 2 + 1);
+    addButton('h' + i, r, () => (afford ? confirmBuy(h.id, () => buyHangar(h)) : buzz(20)), !maxed);
   });
-  drawButton('back', 16, H - 64, (W - 44) / 2, 48, 'BACK', COL.player, () => { newGame('title'); });
-  drawButton('launch', 28 + (W - 44) / 2, H - 64, (W - 44) / 2, 48, 'LAUNCH', COL.xp, startGame);
 }
 
 function drawPaused() {
@@ -1662,4 +1784,4 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 // Handy for testing from the browser console: STARBURN.S, STARBURN.giveXp(20)
-window.STARBURN = { get S() { return S; }, CFG, META, WEAPONS, PASSIVES, giveXp(n) { if (S) S.xp += n; }, choose, startGame, openHangar };
+window.STARBURN = { get S() { return S; }, CFG, META, WEAPONS, PASSIVES, SHIPS, giveXp(n) { if (S) S.xp += n; }, choose, startGame, openHangar };
