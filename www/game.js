@@ -19,12 +19,13 @@ const CFG = {
     damage: 10,               // Wing Cannons: pod bullet base damage
     bulletSpeed: 720,
     magnetRadius: 34,         // how close you must fly to pull in XP crystals
+    handling: 1100,           // how fast (units/s) a ship can chase your finger; each ship multiplies this
   },
 
   slots: { weapons: 4, passives: 4 },
   ultLevel: 10,               // level that offers a choice of ultimate (double-tap to fire)
   ultCooldownMul: 1,          // 0.5 = ultimates recharge twice as fast
-  signatureCooldown: 0.8,     // a ship's own weapon fires 20% faster than the same weapon picked up later (1 = no bonus)   // your ship's signature weapon is a bonus slot on top
+  signatureCooldown: 0.8,     // a ship's own weapon fires 20% faster than the same weapon picked up later (1 = no bonus)
   rarityWeights: { common: 4, uncommon: 2, rare: 1 },   // common is 2x as likely as uncommon, which is 2x rare
   shipCost: { common: 150, uncommon: 450, rare: 1000 }, // credits to unlock a ship, by its weapon's tier
   deflectorRecharge: [0, 40, 32, 25, 19, 14],            // Deflector Shield recharge seconds per Hangar level
@@ -44,20 +45,19 @@ const CFG = {
     graceTime: 1.5,           // quiet seconds at the start
     startInterval: 1.6,       // seconds between enemy groups at the start
     minInterval: 0.5,         // ...and once fully ramped up
-    rampSeconds: 360,         // how long it takes to reach full intensity
+    rampSeconds: 600,         // how long it takes to reach full intensity
     duringBossMul: 2.5,       // fewer small enemies while a boss is up
   },
 
-  boss: {
-    first: 120,               // seconds until the first capital ship
-    every: 150,               // seconds between capital ships after that
-    creditsBase: 25,          // bounty for the first boss...
-    creditsPerBoss: 15,       // ...plus this much for each later one
+  level: {
+    length: 900,              // 15:00: the clock stops and the Hive Queen arrives
+    miniBosses: [225, 450, 675],  // 3:45 Brood Brute, 7:30 Spore Mother, 11:15 Scythe Stalker
+    warnTime: 3,              // seconds of WARNING before each boss
   },
 
   enemyHpGrowthPerMin: 0.35,  // enemies get +35% HP per minute survived
   enemyBulletSpeed: 150,
-  enemyBulletSpeedGrowth: 600,// bullet speed +100% after this many seconds
+  enemyBulletSpeedMax: 1.7,   // enemy bullets speed up through the level, up to 1.7x
 };
 
 // ============================================================================
@@ -108,6 +108,7 @@ function loadMeta() {
   m.lv = m.lv || {};
   m.ship = m.ship || 'vesper';
   m.ships = m.ships || { vesper: true };
+  m.shipLv = m.shipLv || {};       // Hangar upgrade levels, per ship
   if (m.lv.shield) {          // the old cheap "Launch Shield" is gone: refund what was spent on it
     for (let k = 0; k < m.lv.shield; k++) m.bank += Math.round(40 * Math.pow(1.8, k));
     delete m.lv.shield;
@@ -117,14 +118,31 @@ function loadMeta() {
 }
 function saveMeta() { try { localStorage.setItem(META_KEY, JSON.stringify(META)); } catch (e) {} }
 const META = loadMeta();
-const ML = id => META.lv[id] || 0;
+// ML(id): the selected ship's Hangar level for an upgrade (each ship has its own).
+const shipLevels = () => META.shipLv[META.ship] || (META.shipLv[META.ship] = {});
+const ML = id => shipLevels()[id] || 0;
 
-// Permanent upgrades bought in the Hangar between runs.
+// Per-ship stat upgrades: how much each Hangar level adds, and how it's shown.
+const STAT_UP = { hull: 1, dmg: 0.06, rate: 0.05, magnet: 0.12, handling: 0.08 };
+const STAT_BASE = { hull: 'hp', dmg: 'dmg', rate: 'rate', magnet: 'magnet', handling: 'handling' };
+function shipStat(stat, lvl, ship) {
+  ship = ship || curShip();
+  const base = ship.stats[STAT_BASE[stat]];
+  return stat === 'hull' ? base + lvl : base * (1 + STAT_UP[stat] * lvl);
+}
+const fmtStat = (stat, v) => (stat === 'hull' ? String(v) : Math.round(v * 100) + '%');
+function statDesc(label, stat) {
+  return (l, maxed) => maxed ? `${label} ${fmtStat(stat, shipStat(stat, l))}`
+    : `${label} ${fmtStat(stat, shipStat(stat, l))} → ${fmtStat(stat, shipStat(stat, l + 1))}`;
+}
+
+// Hangar upgrades. Every ship has its own levels; the credit bank is shared.
 const HANGAR = [
-  { id: 'hull',    name: 'Reinforced Hull',    desc: '+1 starting hull',             max: 3,  base: 60, growth: 2.2 },
-  { id: 'dmg',     name: 'Weapon Calibration', desc: '+5% damage',                   max: 10, base: 20, growth: 1.35 },
-  { id: 'rate',    name: 'Trigger Tuning',     desc: '+4% fire rate',                max: 10, base: 20, growth: 1.35 },
-  { id: 'magnet',  name: 'Magnet Coils',       desc: '+10% crystal pickup range',    max: 5,  base: 15, growth: 1.4 },
+  { id: 'hull',    name: 'Hull Plating',       desc: statDesc('Hull', 'hull'),            max: 3,  base: 60, growth: 2.2 },
+  { id: 'dmg',     name: 'Weapon Calibration', desc: statDesc('Power', 'dmg'),            max: 10, base: 20, growth: 1.35 },
+  { id: 'rate',    name: 'Trigger Tuning',     desc: statDesc('Fire rate', 'rate'),       max: 10, base: 20, growth: 1.35 },
+  { id: 'magnet',  name: 'Magnet Coils',       desc: statDesc('Pickup range', 'magnet'),  max: 5,  base: 15, growth: 1.4 },
+  { id: 'handling', name: 'Thrusters',         desc: statDesc('Handling', 'handling'),    max: 5,  base: 20, growth: 1.4 },
   { id: 'xp',      name: 'Flight Recorder',    desc: '+6% XP',                       max: 5,  base: 25, growth: 1.45 },
   { id: 'credits', name: 'Salvage Rights',     desc: '+10% credits from bounties',   max: 5,  base: 30, growth: 1.5 },
   { id: 'reroll',  name: 'Reroll Chip',        desc: '+1 reroll of level-up cards per run', max: 3, base: 80, growth: 2 },
@@ -136,11 +154,22 @@ const HANGAR = [
 ];
 const hangarCost = h => Math.round(h.base * Math.pow(h.growth, ML(h.id)));
 
+// One-time switch to per-ship upgrades: refund everything bought under the old shared Hangar.
+if (!META.v || META.v < 2) {
+  let refund = 0;
+  for (const h of HANGAR) for (let k = 0; k < (META.lv[h.id] || 0); k++) refund += Math.round(h.base * Math.pow(h.growth, k));
+  META.lv = {};
+  META.v = 2;
+  META.bank += refund;
+  if (refund) META.notice = `Upgrades are now per ship: ${refund} CR refunded!`;
+  saveMeta();
+}
+
 function buyHangar(h) {
   const lv = ML(h.id), cost = hangarCost(h);
   if (lv >= h.max || META.bank < cost) { buzz(20); return; }
   META.bank -= cost;
-  META.lv[h.id] = lv + 1;
+  shipLevels()[h.id] = lv + 1;
   saveMeta();
   S.flash = { id: h.id, t: 0.35 };
   buzz(25);
@@ -166,7 +195,7 @@ function resize() {
   cv.height = Math.round(vh * dpr);
   SCALE = cv.width / W;
   H = cv.height / SCALE;
-  if (S) { S.p.x = clamp(S.p.x, 12, W - 12); S.p.y = clamp(S.p.y, 100, H - 20); }
+  if (S) { S.p.x = S.p.tx = clamp(S.p.x, 12, W - 12); S.p.y = S.p.ty = clamp(S.p.y, 100, H - 20); }
   if (typeof artResize === 'function') artResize();
 }
 
@@ -458,7 +487,7 @@ function updateUlts(dt) {
     for (const e of S.enemies) {
       if (e.dead) continue;
       const dx = h.x - e.x, dy = h.y - e.y, d = Math.hypot(dx, dy) || 1;
-      if (d < R && e.type !== 'boss') { const pull = (60 + 200 * (1 - d / R)) * dt; e.x += dx / d * pull; e.y += dy / d * pull; if (e.bx !== undefined) e.bx += dx / d * pull; }
+      if (d < R && !e.boss) { const pull = (60 + 200 * (1 - d / R)) * dt; e.x += dx / d * pull; e.y += dy / d * pull; if (e.bx !== undefined) e.bx += dx / d * pull; }
       if (d < 40 + e.r) hitEnemy(e, 160 * dt, true);
     }
     for (const b of S.ebullets) {
@@ -497,22 +526,23 @@ const shieldRecharge = () => CFG.deflectorRecharge[ML('deflector')];
 const repairEvery = () => 52 - 7 * PL('repair');
 
 // ============================================================================
-// Ships (12): one per weapon. Each starts with its signature weapon in a bonus
-// slot, on top of the basic forward cannon every ship has. Unlock in the Hangar.
+// Ships (12). Each fires its signature weapon (bonus slot) and has its own base
+// stats: hull, power (damage), fire rate, pickup range and handling.
 // ============================================================================
+const st = (hp, dmg, rate, magnet, handling) => ({ hp, dmg, rate, magnet, handling });
 const SHIPS = {
-  vesper:   { name: 'VESPER',   weapon: 'spread',  color: '#3df5ff', shape: [0,-16, 5,-4, 14,8, 5,6, 0,10, -5,6, -14,8, -5,-4] },
-  trident:  { name: 'TRIDENT',  weapon: 'wing',    color: '#5dc8ff', shape: [0,-17, 3,-6, 9,-12, 10,2, 15,6, 6,8, 0,11, -6,8, -15,6, -10,2, -9,-12, -3,-6] },
-  hornet:   { name: 'HORNET',   weapon: 'rockets', color: '#ff8a3d', shape: [0,-14, 6,-6, 16,-2, 12,6, 4,4, 0,13, -4,4, -12,6, -16,-2, -6,-6] },
-  bulwark:  { name: 'BULWARK',  weapon: 'flak',    color: '#ff6b6b', shape: [-5,-15, 5,-15, 8,-6, 15,-4, 15,8, 6,10, -6,10, -15,8, -15,-4, -8,-6] },
-  halo:     { name: 'HALO',     weapon: 'disc',    color: '#b8ff5d', shape: [0,-16, 8,-10, 13,-1, 11,8, 0,12, -11,8, -13,-1, -8,-10] },
-  tide:     { name: 'TIDE',     weapon: 'wave',    color: '#5d9dff', shape: [0,-15, 6,-2, 16,6, 16,11, 6,6, 0,9, -6,6, -16,11, -16,6, -6,-2] },
-  hive:     { name: 'HIVE',     weapon: 'drone',   color: '#d6dcff', shape: [0,-15, 10,-8, 10,6, 0,12, -10,6, -10,-8] },
-  lance:    { name: 'LANCE',    weapon: 'laser',   color: '#c86bff', shape: [0,-20, 3,-6, 8,6, 3,5, 0,10, -3,5, -8,6, -3,-6] },
-  corona:   { name: 'CORONA',   weapon: 'orbit',   color: '#62ffd0', shape: [0,-15, 4,-8, 12,-8, 15,0, 12,8, 4,8, 0,12, -4,8, -12,8, -15,0, -12,-8, -4,-8] },
-  tempest:  { name: 'TEMPEST',  weapon: 'chain',   color: '#8fb8ff', shape: [0,-16, 4,-6, 14,-10, 9,0, 16,6, 5,6, 0,11, -5,6, -16,6, -9,0, -14,-10, -4,-6] },
-  needle:   { name: 'NEEDLE',   weapon: 'rail',    color: '#ff5df0', shape: [0,-22, 2,-8, 10,4, 10,8, 2,6, 0,10, -2,6, -10,8, -10,4, -2,-8] },
-  pulsar:   { name: 'PULSAR',   weapon: 'nova',    color: '#fff36b', shape: [0,-16, 4,-5, 15,-3, 6,4, 9,12, 0,7, -9,12, -6,4, -15,-3, -4,-5] },
+  vesper:  { name: 'VESPER',  weapon: 'cannon',  role: 'All-rounder',        stats: st(3, 1.00, 1.00, 1.00, 1.00), color: '#3df5ff', shape: [0,-16, 5,-4, 14,8, 5,6, 0,10, -5,6, -14,8, -5,-4] },
+  trident: { name: 'TRIDENT', weapon: 'wing',    role: 'Fast trigger',       stats: st(3, 0.90, 1.15, 1.00, 1.00), color: '#5dc8ff', shape: [0,-17, 3,-6, 9,-12, 10,2, 15,6, 6,8, 0,11, -6,8, -15,6, -10,2, -9,-12, -3,-6] },
+  hornet:  { name: 'HORNET',  weapon: 'rockets', role: 'Heavy hitter',       stats: st(3, 1.10, 0.95, 1.00, 1.00), color: '#ff8a3d', shape: [0,-14, 6,-6, 16,-2, 12,6, 4,4, 0,13, -4,4, -12,6, -16,-2, -6,-6] },
+  bulwark: { name: 'BULWARK', weapon: 'flak',    role: 'Tank, slow to turn', stats: st(5, 1.00, 0.90, 1.00, 0.70), color: '#ff6b6b', shape: [-5,-15, 5,-15, 8,-6, 15,-4, 15,8, 6,10, -6,10, -15,8, -15,-4, -8,-6] },
+  halo:    { name: 'HALO',    weapon: 'disc',    role: 'Scavenger',          stats: st(3, 1.00, 1.00, 1.35, 1.00), color: '#b8ff5d', shape: [0,-16, 8,-10, 13,-1, 11,8, 0,12, -11,8, -13,-1, -8,-10] },
+  tide:    { name: 'TIDE',    weapon: 'wave',    role: 'Crowd control',      stats: st(3, 0.95, 1.00, 1.00, 0.95), color: '#5d9dff', shape: [0,-15, 6,-2, 16,6, 16,11, 6,6, 0,9, -6,6, -16,11, -16,6, -6,-2] },
+  hive:    { name: 'HIVE',    weapon: 'drone',   role: 'Commander',          stats: st(3, 1.00, 1.00, 1.20, 0.90), color: '#d6dcff', shape: [0,-15, 10,-8, 10,6, 0,12, -10,6, -10,-8] },
+  lance:   { name: 'LANCE',   weapon: 'laser',   role: 'Glass cannon',       stats: st(2, 1.25, 1.00, 1.00, 1.15), color: '#c86bff', shape: [0,-20, 3,-6, 8,6, 3,5, 0,10, -3,5, -8,6, -3,-6] },
+  corona:  { name: 'CORONA',  weapon: 'orbit',   role: 'Brawler',            stats: st(4, 0.95, 1.00, 1.00, 1.10), color: '#62ffd0', shape: [0,-15, 4,-8, 12,-8, 15,0, 12,8, 4,8, 0,12, -4,8, -12,8, -15,0, -12,-8, -4,-8] },
+  tempest: { name: 'TEMPEST', weapon: 'chain',   role: 'Storm caller',       stats: st(3, 1.00, 1.10, 1.00, 1.00), color: '#8fb8ff', shape: [0,-16, 4,-6, 14,-10, 9,0, 16,6, 5,6, 0,11, -5,6, -16,6, -9,0, -14,-10, -4,-6] },
+  needle:  { name: 'NEEDLE',  weapon: 'rail',    role: 'Sniper',             stats: st(2, 1.30, 0.95, 1.00, 1.20), color: '#ff5df0', shape: [0,-22, 2,-8, 10,4, 10,8, 2,6, 0,10, -2,6, -10,8, -10,4, -2,-8] },
+  pulsar:  { name: 'PULSAR',  weapon: 'nova',    role: 'Close-range bruiser', stats: st(4, 1.05, 1.00, 1.00, 0.85), color: '#fff36b', shape: [0,-16, 4,-5, 15,-3, 6,4, 9,12, 0,7, -9,12, -6,4, -15,-3, -4,-5] },
 };
 const shipTier = id => WEAPONS[SHIPS[id].weapon].tier;
 const shipCost = id => (id === 'vesper' ? 0 : CFG.shipCost[shipTier(id)]);
@@ -521,8 +551,8 @@ const curShip = () => SHIPS[META.ship] || SHIPS.vesper;
 // All modifiers in one place: hangar upgrades + passives.
 function recalcMods() {
   const m = {
-    dmg: 1 + 0.05 * ML('dmg') + 0.12 * PL('power') + (PL('multi') >= 2 ? 0.05 : 0) + (PL('multi') >= 4 ? 0.05 : 0),
-    cd: Math.pow(0.96, ML('rate')) * Math.pow(0.9, PL('rapid')),
+    dmg: shipStat('dmg', ML('dmg')) + 0.12 * PL('power') + (PL('multi') >= 2 ? 0.05 : 0) + (PL('multi') >= 4 ? 0.05 : 0),
+    cd: (1 / shipStat('rate', ML('rate'))) * Math.pow(0.9, PL('rapid')),
     area: 1 + 0.15 * PL('area'),
     count: [0, 1, 1, 2, 2, 3][PL('multi')],
     speed: 1 + 0.15 * PL('velocity'),
@@ -533,8 +563,9 @@ function recalcMods() {
   };
   S.mod = m;
   const p = S.p;
-  p.magnet = CFG.player.magnetRadius * (1 + 0.1 * ML('magnet') + 0.3 * PL('tractor'));
-  p.maxHp = CFG.player.hp + ML('hull') + PL('plating');
+  p.magnet = CFG.player.magnetRadius * (shipStat('magnet', ML('magnet')) + 0.3 * PL('tractor'));
+  p.maxHp = shipStat('hull', ML('hull')) + PL('plating');
+  p.handling = CFG.player.handling * shipStat('handling', ML('handling'));
 }
 
 // ============================================================================
@@ -547,14 +578,16 @@ function xpNeed(level) {
 }
 
 function newGame(state) {
+  if (state && state !== 'title' && META.notice) { META.notice = null; saveMeta(); }   // one-time message seen
   S = {
-    state: state || 'play',     // title | hangar | play | levelup | paused | over
+    state: state || 'play',     // title | hangar | play | levelup | paused | over | won
     t: 0, kills: 0, level: 1, xp: 0, shake: 0, credits: 0,
-    p: { x: W / 2, y: H * 0.78, hp: 0, maxHp: 0, invuln: 0, magnet: 0, bubble: false, bubbleT: 0, repairT: 0 },
+    p: { x: W / 2, y: H * 0.78, tx: W / 2, ty: H * 0.78, hp: 0, maxHp: 0, invuln: 0, magnet: 0, handling: 1000,
+         bubble: false, bubbleT: 0, repairT: 0 },
     weapons: {}, passives: {}, mod: null,
     bullets: [], ebullets: [], enemies: [], orbs: [], parts: [], novas: [], zaps: [], texts: [], bursts: [], laser: null,
     ult: null, overdrive: 0, warp: 0, phase: 0, hole: null, barrage: null, whiteout: 0,
-    spawnT: CFG.spawn.graceTime, nextBoss: CFG.boss.first, bossCount: 0, warn: 0,
+    spawnT: CFG.spawn.graceTime, ev: 0, warned: false, warn: 0, warnName: '', queenUp: false, victoryT: 0,
     pending: 0, choices: null, choiceLevel: 0, uiLock: 0, uiPress: null, flash: null,
     rerolls: ML('reroll'), revives: ML('revive'),
   };
@@ -569,24 +602,32 @@ function newGame(state) {
 // ============================================================================
 // Enemies
 // ============================================================================
+// The hive fleet. r = hit size (20% bigger than before). Bosses don't leave the screen.
 const ENEMY = {
-  drone:  { hp: 20,   r: 12, xp: 1,  credits: 1, color: '#ff3b3b' },
-  weaver: { hp: 14,   r: 11, xp: 1,  credits: 1, color: '#ff8c1a' },
-  diver:  { hp: 26,   r: 12, xp: 2,  credits: 1, color: '#ff3fa4' },
-  gunner: { hp: 120,  r: 20, xp: 6,  credits: 3, color: '#8f5cff' },
-  boss:   { hp: 2200, r: 34, xp: 30, credits: 0, color: '#e8233a' },   // boss bounty: CFG.boss
+  drone:   { name: 'Mite',           hp: 20,   r: 14, xp: 1,  credits: 1,   color: '#b84dff' },
+  weaver:  { name: 'Wriggler',       hp: 14,   r: 13, xp: 1,  credits: 1,   color: '#ff5fa2' },
+  diver:   { name: 'Stinger',        hp: 26,   r: 14, xp: 2,  credits: 1,   color: '#ffb21a' },
+  gunner:  { name: 'Spitter',        hp: 120,  r: 24, xp: 6,  credits: 3,   color: '#e53950' },
+  brute:   { name: 'BROOD BRUTE',    hp: 2200, r: 44, xp: 25, credits: 40,  color: '#8a4dff', boss: true },
+  mother:  { name: 'SPORE MOTHER',   hp: 3600, r: 48, xp: 30, credits: 60,  color: '#3fbf9a', boss: true },
+  stalker: { name: 'SCYTHE STALKER', hp: 5200, r: 42, xp: 35, credits: 80,  color: '#ff7a2f', boss: true },
+  queen:   { name: 'HIVE QUEEN',     hp: 11000, r: 66, xp: 0,  credits: 300, color: '#d81b60', boss: true },
 };
+const LEVEL_EVENTS = () => [
+  ...CFG.level.miniBosses.map((t, i) => ({ t, type: ['brute', 'mother', 'stalker'][i] })),
+  { t: CFG.level.length, type: 'queen' },
+];
 
 function spawnEnemy(type, x, y, extra) {
   const d = ENEMY[type];
-  const hp = d.hp * (1 + CFG.enemyHpGrowthPerMin * S.t / 60);
-  const e = Object.assign({ type, x, y, hp, maxHp: hp, r: d.r, xp: d.xp, credits: d.credits, color: d.color,
+  const hp = d.boss ? d.hp : d.hp * (1 + CFG.enemyHpGrowthPerMin * S.t / 60);   // bosses have fixed health
+  const e = Object.assign({ type, x, y, hp, maxHp: hp, r: d.r, xp: d.xp, credits: d.credits, color: d.color, boss: !!d.boss,
                             age: 0, flash: 0, mode: 0, fireT: rand(0.8, 2.0), vx: 0, vy: 0 }, extra);
   S.enemies.push(e);
   return e;
 }
 function countType(t) { let n = 0; for (const e of S.enemies) if (e.type === t && !e.dead) n++; return n; }
-const bossAlive = () => S.enemies.some(e => e.type === 'boss' && !e.dead);
+const bossAlive = () => S.enemies.some(e => e.boss && !e.dead);
 
 function spawnPattern() {
   const t = S.t;
@@ -625,14 +666,111 @@ function spawnPattern() {
   }
 }
 
-function spawnBoss() {
-  const credits = CFG.boss.creditsBase + CFG.boss.creditsPerBoss * S.bossCount;
-  S.bossCount++;
-  spawnEnemy('boss', W / 2, -50, { credits, pat: 0, patT: 1.5, shotT: 0, spin: 0, sway: 0 });
+function spawnBoss(type) {
+  spawnEnemy(type, W / 2, -ENEMY[type].r - 20, { ty: type === 'queen' ? 150 : 125, sway: 0, spin: 0, shotT: 1.5,
+    spinT: 0.6, ringT: 2.5, spawnT: 3, patT: 4, phase: 1, volley: 0, ring: 0 });
 }
 
+// --- Boss brains. All enter from the top first (mode 0).
+function bossEnter(e, dt) {
+  if (e.mode !== 0) return false;
+  e.y += 55 * dt;
+  if (e.y >= e.ty) e.mode = 1;
+  return true;
+}
+function bossBrute(e, dt) {         // 3:45 · aimed fans, side sprays, calls in mites
+  if (bossEnter(e, dt)) return;
+  const angry = e.hp < e.maxHp / 2;
+  e.sway += dt;
+  e.x = W / 2 + Math.sin(e.sway * 0.5) * (W / 2 - 70);
+  if ((e.shotT -= dt) <= 0) {
+    e.shotT = angry ? 1.0 : 1.4;
+    e.volley++;
+    const a = aimAt(e), n = angry ? 9 : 7;
+    for (let k = 0; k < n; k++) enemyShot(e.x, e.y + 30, a + (k - (n - 1) / 2) * 0.13, 1.0);
+    if (e.volley % 3 === 0) for (const side of [-1, 1]) for (let j = 0; j < 3; j++) enemyShot(e.x + side * 30, e.y + 10, Math.PI / 2 + side * (0.3 + j * 0.25), 0.8);
+  }
+  if ((e.spawnT -= dt) <= 0) { e.spawnT = 5; for (let i = 0; i < 3; i++) spawnEnemy('drone', e.x + (i - 1) * 40, e.y + 20, { vy: 110, fireT: rand(1, 2) }); }
+}
+function bossMother(e, dt) {        // 7:30 · alternating spore rings, a spiral when hurt, wriggler broods
+  if (bossEnter(e, dt)) return;
+  e.sway += dt;
+  e.x = W / 2 + Math.sin(e.sway * 0.3) * (W / 2 - 80);
+  e.y = e.ty + Math.sin(e.sway * 0.8) * 12;
+  if ((e.shotT -= dt) <= 0) {
+    e.shotT = 1.7; e.ring++;
+    const n = 16, off = e.ring % 2 ? Math.PI / n : 0;
+    for (let k = 0; k < n; k++) enemyShot(e.x, e.y, off + (k / n) * TAU, 0.6);
+  }
+  if (e.hp < e.maxHp * 0.5 && (e.spinT -= dt) <= 0) {
+    e.spinT = 0.14; e.spin += 0.45;
+    enemyShot(e.x, e.y + 20, e.spin, 0.8); enemyShot(e.x, e.y + 20, e.spin + Math.PI, 0.8);
+  }
+  if ((e.spawnT -= dt) <= 0) {
+    e.spawnT = 7;
+    const bx = clamp(e.x, 80, W - 80);
+    for (let i = 0; i < 4; i++) spawnEnemy('weaver', bx, e.y - i * 28, { bx, ph: 0, amp: 60, vy: 120, fireT: rand(2, 4) });
+  }
+}
+function bossStalker(e, dt) {       // 11:15 · sweeping scythe streams, then dashes over you and slashes
+  if (bossEnter(e, dt)) return;
+  e.patT -= dt;
+  if (e.mode === 1) {
+    e.x += (W / 2 + Math.sin(e.age * 0.7) * 90 - e.x) * Math.min(1, dt * 2);
+    if ((e.shotT -= dt) <= 0) {
+      e.shotT = 0.09; e.spin += 0.13;
+      const sweep = Math.sin(e.spin) * 0.9;
+      enemyShot(e.x - 30, e.y + 12, Math.PI / 2 + sweep, 0.9);
+      enemyShot(e.x + 30, e.y + 12, Math.PI / 2 - sweep, 0.9);
+    }
+    if (e.patT <= 0) { e.mode = 2; e.patT = 2.2; e.dashX = clamp(S.p.x, 50, W - 50); e.volley = 0; e.shotT = 0.2; }
+  } else {
+    e.x += (e.dashX - e.x) * Math.min(1, dt * 5);
+    if (Math.abs(e.dashX - e.x) < 8 && e.volley < 3 && (e.shotT -= dt) <= 0) {
+      e.shotT = 0.35; e.volley++;
+      const a = aimAt(e);
+      for (let k = -3; k <= 3; k++) enemyShot(e.x, e.y + 24, a + k * 0.1, 1.25);
+    }
+    if (e.patT <= 0) { e.mode = 1; e.patT = e.hp < e.maxHp / 2 ? 3.2 : 4.2; }
+  }
+}
+function bossQueen(e, dt) {         // 15:00 · three phases, each angrier
+  if (bossEnter(e, dt)) return;
+  const f = e.hp / e.maxHp, phase = f > 0.66 ? 1 : f > 0.33 ? 2 : 3;
+  if (phase !== e.phase) {
+    e.phase = phase;
+    burst(e.x, e.y + 50, 64, phase === 2 ? 'SKREEE!' : 'RAAARGH!', COL.red);
+    S.shake = 0.5; buzz(120);
+    for (const b of S.ebullets) b.dead = true;
+  }
+  e.sway += dt;
+  e.x = W / 2 + Math.sin(e.sway * 0.35) * (W / 2 - 90);
+  const fast = phase === 3 ? 0.7 : 1;
+  if ((e.spinT -= dt) <= 0) {                     // spiral arms
+    e.spinT = 0.13 * fast; e.spin += phase === 1 ? 0.22 : -0.28;
+    const arms = phase === 1 ? 3 : 4;
+    for (let k = 0; k < arms; k++) enemyShot(e.x, e.y + 30, e.spin + (k * TAU) / arms, 0.7);
+  }
+  if ((e.shotT -= dt) <= 0) {                     // aimed claw volleys
+    e.shotT = 1.6 * fast;
+    const a = aimAt(e);
+    for (const side of [-1, 1]) for (let k = -1; k <= 1; k++) enemyShot(e.x + side * 48, e.y + 34, a + k * 0.12, 1.15);
+  }
+  if (phase >= 2 && (e.ringT -= dt) <= 0) {      // rings
+    e.ringT = 2.6 * fast;
+    const n = 22, off = Math.random() * TAU;
+    for (let k = 0; k < n; k++) enemyShot(e.x, e.y + 20, off + (k / n) * TAU, 0.65);
+  }
+  if ((e.spawnT -= dt) <= 0) {                    // brood
+    e.spawnT = phase === 1 ? 8 : 6;
+    const kind = phase === 1 ? 'drone' : 'diver';
+    for (let i = 0; i < (phase === 3 ? 3 : 2); i++) spawnEnemy(kind, rand(40, W - 40), -20, kind === 'diver' ? { ty: rand(80, 200) } : { vy: 100 });
+  }
+}
+const BOSS_BRAIN = { brute: bossBrute, mother: bossMother, stalker: bossStalker, queen: bossQueen };
+
 function enemyShot(x, y, angle, speedMul) {
-  const sp = CFG.enemyBulletSpeed * (1 + S.t / CFG.enemyBulletSpeedGrowth) * (speedMul || 1);
+  const sp = CFG.enemyBulletSpeed * Math.min(CFG.enemyBulletSpeedMax, 1 + S.t / 900) * (speedMul || 1);
   S.ebullets.push({ x, y, vx: Math.cos(angle) * sp, vy: Math.sin(angle) * sp, r: 4 });
 }
 function aimAt(e) { return Math.atan2(S.p.y - e.y, S.p.x - e.x); }
@@ -671,32 +809,11 @@ function updateEnemy(e, dt) {
         if (e.age > 14) e.mode = 2;
       } else e.y += 80 * dt;
       break;
-    case 'boss':
-      // Enters, then sways side to side cycling: spiral, rest, aimed fans, rest, rings, rest.
-      if (e.mode === 0) { e.y += 45 * dt; if (e.y >= 120) e.mode = 1; }
-      else {
-        e.sway += dt;
-        e.x = W / 2 + Math.sin(e.sway * 0.45) * (W / 2 - 60);
-        if ((e.patT -= dt) <= 0) { e.pat = (e.pat + 1) % 6; e.patT = e.pat % 2 ? 1.0 : 3.6; e.shotT = 0.3; }
-        if (e.pat % 2 === 0 && (e.shotT -= dt) <= 0) {
-          const kind = e.pat / 2;
-          if (kind === 0) {
-            e.shotT = 0.1; e.spin += 0.32;
-            for (let k = 0; k < 3; k++) enemyShot(e.x, e.y + 10, e.spin + k * TAU / 3, 0.75);
-          } else if (kind === 1) {
-            e.shotT = 0.6;
-            const a = aimAt(e);
-            for (let k = -2; k <= 2; k++) enemyShot(e.x, e.y + 20, a + k * 0.16, 1.1);
-          } else {
-            e.shotT = 1.1;
-            const n = 18, off = Math.random() * TAU;
-            for (let k = 0; k < n; k++) enemyShot(e.x, e.y, off + (k / n) * TAU, 0.7);
-          }
-        }
-      }
+    default:
+      if (BOSS_BRAIN[e.type]) BOSS_BRAIN[e.type](e, dt);
       break;
   }
-  if (e.y > H + 40 || e.x < -60 || e.x > W + 60) e.dead = true;   // escaped: no XP, no bounty
+  if (!e.boss && (e.y > H + 40 || e.x < -60 || e.x > W + 60)) e.dead = true;   // escaped: no XP, no bounty
 
   // Ramming the player hurts both of you.
   const dx = e.x - p.x, dy = e.y - p.y, rr = e.r + 6;
@@ -718,7 +835,7 @@ function hitEnemy(e, dmg, quiet) {
 function killEnemy(e) {
   e.dead = true;
   S.kills++;
-  const big = e.type === 'boss';
+  const big = e.boss;
   comicKill(e, big);
   sparks(e.x, e.y, e.color, big ? 80 : e.type === 'gunner' ? 30 : 14);
   sparks(e.x, e.y, '#ffffff', big ? 30 : 5);
@@ -726,6 +843,10 @@ function killEnemy(e) {
     S.shake = 0.6; buzz(200);
     S.novas.push({ x: e.x, y: e.y, r: 0, max: 140, dmg: 0, age: 0, hit: null, color: e.color });
     for (const b of S.ebullets) b.dead = true;   // boss down: clear the screen
+    if (e.type === 'queen') {                    // level clear! the rest of the swarm dies with her
+      S.victoryT = 2.8; S.p.invuln = 99;
+      for (const o of S.enemies) if (!o.dead && o !== e) killEnemy(o);
+    }
   }
   // Bounty
   const c = e.credits * S.mod.credit;
@@ -812,7 +933,7 @@ function burst(x, y, size, word, color) {
   S.bursts.push({ x, y, size, word, age: 0, life: word ? 0.75 : 0.3, rot: rand(-0.3, 0.3), color: color || COL.gold, spikes: word ? 12 : 9 });
 }
 function comicKill(e, big) {
-  if (big) burst(e.x, e.y, 95, 'KA-BOOM!', COL.gold);
+  if (big) burst(e.x, e.y, e.type === 'queen' ? 130 : 95, e.type === 'queen' ? 'KA-SPLAT!!' : 'KA-BOOM!', COL.gold);
   else if (e.type === 'gunner') burst(e.x, e.y, 46, pick(WORDS_MED), COL.gold);
   else if (Math.random() < 0.15 && S.bursts.filter(b => b.word).length < 3) burst(e.x, e.y, 30, pick(WORDS_SMALL), COL.gold);
   else burst(e.x, e.y, e.r * 1.5, null, e.color);
@@ -830,6 +951,13 @@ function updateParticles(dt) {
   for (const z of S.zaps) { z.age += dt; if (z.age > 0.18) z.dead = true; }
   for (const b of S.bursts) { b.age += dt; if (b.age > b.life) b.dead = true; }
   compact(S.parts); compact(S.texts); compact(S.zaps); compact(S.bursts);
+}
+
+function levelComplete() {
+  gameOver(false);
+  S.state = 'won';
+  META.clears = (META.clears || 0) + 1;
+  saveMeta();
 }
 
 function gameOver(quit) {
@@ -960,11 +1088,14 @@ function gameUpdate(dt) {
   // --- movement: finger drag is relative, so your finger never covers the ship
   const kx = (keys.arrowright || keys.d ? 1 : 0) - (keys.arrowleft || keys.a ? 1 : 0);
   const ky = (keys.arrowdown || keys.s ? 1 : 0) - (keys.arrowup || keys.w ? 1 : 0);
-  p.x += kx * CFG.player.keySpeed * dt + input.dx * CFG.player.dragSensitivity;
-  p.y += ky * CFG.player.keySpeed * dt + input.dy * CFG.player.dragSensitivity;
+  // Your finger moves a target point; the ship chases it at its handling speed.
+  p.tx = clamp(p.tx + kx * CFG.player.keySpeed * dt + input.dx * CFG.player.dragSensitivity, 12, W - 12);
+  p.ty = clamp(p.ty + ky * CFG.player.keySpeed * dt + input.dy * CFG.player.dragSensitivity, 100, H - 20);
   input.dx = input.dy = 0;
-  p.x = clamp(p.x, 12, W - 12);
-  p.y = clamp(p.y, 100, H - 20);
+  {
+    const dx = p.tx - p.x, dy = p.ty - p.y, d = Math.hypot(dx, dy), step = p.handling * dt;
+    if (d <= step) { p.x = p.tx; p.y = p.ty; } else { p.x += (dx / d) * step; p.y += (dy / d) * step; }
+  }
   p.invuln = Math.max(0, p.invuln - dt);
 
   // --- passive timers
@@ -982,10 +1113,18 @@ function gameUpdate(dt) {
   }
   S.sig = false;
 
-  // --- spawning: small fry, plus a capital ship on a timer
-  if (S.t >= S.nextBoss - 3 && S.warn <= 0 && !S.warned) { S.warn = 3; S.warned = true; buzz([60, 60, 60]); }
-  if (S.t >= S.nextBoss) { spawnBoss(); S.nextBoss += CFG.boss.every; S.warned = false; }
-  if ((S.spawnT -= dt) <= 0) {
+  // --- the level: 3 mini-bosses on the clock, then the Hive Queen at 15:00
+  const events = LEVEL_EVENTS();
+  if (S.ev < events.length) {
+    const ev = events[S.ev];
+    if (!S.warned && S.t >= ev.t - CFG.level.warnTime) {
+      S.warn = CFG.level.warnTime; S.warned = true; S.warnName = ENEMY[ev.type].name; buzz([60, 60, 60]);
+    }
+    if (S.t >= ev.t) { spawnBoss(ev.type); S.ev++; S.warned = false; if (ev.type === 'queen') S.queenUp = true; }
+  }
+  if (S.victoryT > 0 && (S.victoryT -= dt) <= 0) { levelComplete(); return; }
+  // --- the swarm (stops once the Queen arrives: she brings her own)
+  if (!S.queenUp && (S.spawnT -= dt) <= 0) {
     const k = clamp(S.t / CFG.spawn.rampSeconds, 0, 1);
     S.spawnT = lerp(CFG.spawn.startInterval, CFG.spawn.minInterval, k) * rand(0.7, 1.3) * (bossAlive() ? CFG.spawn.duringBossMul : 1);
     spawnPattern();
@@ -1115,7 +1254,7 @@ function update(dt) {
   if (S.state === 'play') gameUpdate(dt);
   else {
     S.uiLock -= dt;
-    if (S.state === 'over') { S.shake = Math.max(0, S.shake - dt); updateParticles(dt); }
+    if (S.state === 'over' || S.state === 'won') { S.shake = Math.max(0, S.shake - dt); updateParticles(dt); }
   }
 }
 
@@ -1194,8 +1333,8 @@ window.addEventListener('keydown', e => {
     if (['1', '2', '3'].includes(k)) choose(+k - 1);
     if (k === 'r') reroll();
   }
-  if ((k === 'enter' || k === ' ') && (S.state === 'title' || S.state === 'hangar' || (S.state === 'over' && S.uiLock <= 0))) startGame();
-  if (k === 'h' && (S.state === 'title' || (S.state === 'over' && S.uiLock <= 0))) openHangar();
+  if ((k === 'enter' || k === ' ') && (S.state === 'title' || S.state === 'hangar' || ((S.state === 'over' || S.state === 'won') && S.uiLock <= 0))) startGame();
+  if (k === 'h' && (S.state === 'title' || ((S.state === 'over' || S.state === 'won') && S.uiLock <= 0))) openHangar();
 });
 window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
 window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
@@ -1203,6 +1342,6 @@ document.addEventListener('visibilitychange', () => { if (document.hidden && S &
 document.addEventListener('contextmenu', e => e.preventDefault());
 
 // Handy for testing from the browser console: STARBURN.S, STARBURN.giveXp(20)
-window.STARBURN = { get S() { return S; }, CFG, META, WEAPONS, PASSIVES, SHIPS, ULTS, giveXp(n) { if (S) S.xp += n; },
+window.STARBURN = { get S() { return S; }, CFG, META, ENEMY_DEF: ENEMY, WEAPONS, PASSIVES, SHIPS, ULTS, giveXp(n) { if (S) S.xp += n; },
   choose, startGame, openHangar, activateUlt,
   step(dt, n) { for (let i = 0; i < n; i++) update(dt); } };   // fast-forward for testing

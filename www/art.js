@@ -103,12 +103,14 @@ function path(points) {
 
 // Flat colour + hard shadow (with halftone dots) on the lower right + highlight + ink outline.
 // Call with ctx already translated to the shape's centre. s = rough radius.
-function cel(pts, base, s, flash, lw) {
-  path(pts);
+function cel(pts, base, s, flash, lw) { celBuild(() => path(pts), base, s, flash, lw); }
+function celBuild(build, base, s, flash, lw) {
+  build();
   ctx.fillStyle = flash ? PAPER : base;
   ctx.fill();
   if (!flash) {
     ctx.save();
+    build();
     ctx.clip();
     ctx.beginPath();
     ctx.moveTo(s * 0.12, -s * 2); ctx.lineTo(s * 2, -s * 2); ctx.lineTo(s * 2, s * 2); ctx.lineTo(-s * 0.7, s * 2);
@@ -119,11 +121,24 @@ function cel(pts, base, s, flash, lw) {
     ctx.beginPath(); ctx.ellipse(-s * 0.38, -s * 0.28, s * 0.1, s * 0.3, 0.5, 0, TAU); ctx.fill();
     ctx.restore();
   }
-  path(pts);
+  build();
   ctx.lineJoin = 'round';
   ctx.lineWidth = lw || 2.4;
   ctx.strokeStyle = INK;
   ctx.stroke();
+}
+function oval(cx, cy, rx, ry, rot, color, flash, lw) {
+  ctx.save(); ctx.translate(cx, cy); if (rot) ctx.rotate(rot);
+  celBuild(() => { ctx.beginPath(); ctx.ellipse(0, 0, rx, ry, 0, 0, TAU); }, color, Math.max(rx, ry), flash, lw);
+  ctx.restore();
+}
+const toneCache = {};
+function tone(hex, f) {           // f < 0 darker, f > 0 lighter
+  const key = hex + f;
+  if (toneCache[key]) return toneCache[key];
+  const n = parseInt(hex.slice(1), 16), t = f < 0 ? 0 : 255, k = Math.abs(f);
+  const c = [n >> 16, (n >> 8) & 255, n & 255].map(v => Math.round(v + (t - v) * k));
+  return (toneCache[key] = `rgb(${c[0]},${c[1]},${c[2]})`);
 }
 
 function roundRect(x, y, w, h, r) {
@@ -229,6 +244,7 @@ function dim(a) { ctx.fillStyle = `rgba(20,16,31,${a})`; ctx.fillRect(0, 0, W, H
 // ============================================================================
 // Ships
 // ============================================================================
+const SHIP_SIZE = 1.2;   // player ships are drawn 20% bigger (the hitbox dot stays tiny)
 function drawShip(x, y, scale, ship, locked) {
   ship = ship || SHIPS.vesper;
   ctx.save();
@@ -264,7 +280,7 @@ function drawFlame(x, y, s) {
 
 // Weapons that are part of the ship's look (pods, drones, blades)
 const WEAPON_ART = {
-  wing() { for (const s of [-1, 1]) drawShip(S.p.x + s * 24, S.p.y + 4, 0.5, S.ship); },
+  wing() { for (const s of [-1, 1]) drawShip(S.p.x + s * 28, S.p.y + 5, 0.6, S.ship); },
   orbit(w) {
     if (!w.pos) return;
     const sr = 6.5 * Math.sqrt(S.mod.area);
@@ -287,7 +303,7 @@ const WEAPON_ART = {
 function drawPlayer() {
   const p = S.p;
   const blink = p.invuln > 0 && S.phase <= 0 && Math.floor(p.invuln * 16) % 2 === 0;
-  drawFlame(p.x, p.y + 8, 1);
+  drawFlame(p.x, p.y + 10, 1.2);
   for (const id in S.weapons) if (WEAPON_ART[id]) WEAPON_ART[id](S.weapons[id]);
   if (S.phase > 0) {                       // Phase Ram: dashed ink aura
     ctx.setLineDash([5, 4]);
@@ -295,7 +311,7 @@ function drawPlayer() {
     ctx.beginPath(); ctx.arc(p.x, p.y, 26 + Math.sin(S.t * 20) * 2, 0, TAU); ctx.stroke();
     ctx.setLineDash([]);
   }
-  if (!blink) drawShip(p.x, p.y, 1, S.ship);
+  if (!blink) drawShip(p.x, p.y, SHIP_SIZE, S.ship);
   // hitbox dot: the only part that can be hit
   ctx.fillStyle = PAPER;
   ctx.beginPath(); ctx.arc(p.x, p.y, CFG.player.hitRadius - 0.5, 0, TAU); ctx.fill();
@@ -319,43 +335,203 @@ function drawPlayer() {
 // ============================================================================
 // Enemies
 // ============================================================================
-const ENEMY_SHAPE = {
-  drone:  [0, 12, 12, -6, 5, -2, 0, -10, -5, -2, -12, -6],
-  weaver: [0, 11, 6, 0, 13, -4, 6, -6, 0, -11, -6, -6, -13, -4, -6, 0],
-  diver:  [0, 14, 7, -4, 3, -12, -3, -12, -7, -4],
-  gunner: (() => { const p = []; for (let i = 0; i < 6; i++) { const a = i / 6 * TAU + Math.PI / 6; p.push(Math.cos(a) * 20, Math.sin(a) * 20); } return p; })(),
-  boss:   [0, 42, 16, 22, 44, 14, 38, -8, 18, -4, 12, -26, -12, -26, -18, -4, -38, -8, -44, 14, -16, 22],
+// The hive fleet: organic, insect-like creatures (original designs). Each faces
+// down the screen. Bio colours, bone claws, acid-green eyes, same ink + cel look.
+const EYE = '#b6ff3b', BONE = '#f3e2c7', CHITIN = '#4a2a6e';
+
+function inkLine(lw, pts) {
+  ctx.lineWidth = lw; ctx.strokeStyle = INK; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.beginPath(); ctx.moveTo(pts[0], pts[1]);
+  for (let i = 2; i < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]);
+  ctx.stroke();
+}
+function eyes(list, r, color) {
+  for (const [x, y] of list) {
+    ctx.fillStyle = color || EYE;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
+    ctx.lineWidth = 1.2; ctx.strokeStyle = INK; ctx.stroke();
+    ctx.fillStyle = PAPER; ctx.beginPath(); ctx.arc(x - r * 0.3, y - r * 0.3, r * 0.35, 0, TAU); ctx.fill();
+  }
+}
+function boneHook(x0, y0, cx, cy, x1, y1, thick, flash) {   // a curved bone claw / mandible
+  celBuild(() => {
+    ctx.beginPath(); ctx.moveTo(x0, y0);
+    ctx.quadraticCurveTo(cx, cy, x1, y1);
+    ctx.quadraticCurveTo(cx * 0.55 + x0 * 0.45 + thick, cy * 0.55 + y0 * 0.45, x0 + thick, y0);
+    ctx.closePath();
+  }, BONE, 8, flash, 1.8);
+}
+function tendril(x0, y0, x1, y1, wave, color, w) {
+  const mx = (x0 + x1) / 2 + wave, my = (y0 + y1) / 2;
+  for (const [lw, c] of [[w + 3, INK], [w, color]]) {
+    ctx.lineWidth = lw; ctx.strokeStyle = c; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.quadraticCurveTo(mx, my, x1 - wave * 0.5, y1); ctx.stroke();
+  }
+}
+
+const CREATURE = {
+  drone(e, f) {                       // MITE: little beetle, scuttling legs, snapping mandibles
+    const t = e.age; ctx.scale(e.r / 14, e.r / 14);
+    for (let i = 0; i < 3; i++) for (const sd of [-1, 1]) {
+      const w = Math.sin(t * 16 + i * 2.1 + sd) * 2.5, by = -5 + i * 5;
+      inkLine(2.2, [sd * 6, by, sd * 12, by - 3 + w, sd * 16, by + 3 + w]);
+    }
+    const o = 1.5 + 1.5 * Math.sin(t * 9);
+    for (const sd of [-1, 1]) boneHook(sd * 2, 11, sd * (8 + o), 15, sd * 1.5, 20, sd * 1.5, f);
+    oval(0, -2, 9, 11, 0, e.color, f, 2.2);
+    inkLine(1.4, [0, -12, 0, 7]);
+    oval(0, 9, 6.5, 5, 0, tone(e.color, -0.4), f, 2);
+    eyes([[-2.6, 10.5], [2.6, 10.5]], 1.7);
+  },
+
+  weaver(e, f) {                      // WRIGGLER: segmented worm whipping side to side
+    const segs = 5, gap = 0.09;
+    for (let k = segs - 1; k >= 1; k--) {
+      const tt = e.age - k * gap;
+      const wx = (e.bx !== undefined ? e.bx + Math.sin(tt * 2.4 + e.ph) * e.amp : e.x) - e.x;
+      const wy = -k * gap * (e.vy || 110), rr = e.r * (0.78 - k * 0.09);
+      inkLine(1.8, [wx - rr - 3, wy + 2, wx + rr + 3, wy + 2]);
+      oval(wx, wy, rr, rr * 0.9, 0, k % 2 ? e.color : tone(e.color, -0.2), f, 2);
+    }
+    const r = e.r, o = Math.sin(e.age * 10) * 1.5;
+    for (const sd of [-1, 1]) boneHook(sd * r * 0.25, r * 0.6, sd * (r * 0.75 + o), r * 0.9, sd * r * 0.15, r * 1.3, sd * 1.4, f);
+    oval(0, 0, r * 0.85, r * 0.8, 0, e.color, f, 2.2);
+    eyes([[-r * 0.32, r * 0.22], [r * 0.32, r * 0.22]], 1.9);
+  },
+
+  diver(e, f) {                       // STINGER: wasp; flashes, then dives stinger-first
+    if (e.mode === 1 && Math.floor(e.wait * 12) % 2) f = true;
+    if (e.mode === 2) ctx.rotate(Math.atan2(e.vy, e.vx) - Math.PI / 2);
+    ctx.scale(e.r / 14, e.r / 14);
+    const flap = Math.abs(Math.sin(e.age * 38));
+    for (const sd of [-1, 1]) {
+      ctx.save(); ctx.translate(sd * 4, -5); ctx.rotate(sd * -0.5); ctx.scale(0.35 + 0.65 * flap, 1);
+      ctx.globalAlpha = 0.8;
+      ctx.beginPath(); ctx.ellipse(sd * 8, 0, 9, 4.5, 0, 0, TAU);
+      ctx.fillStyle = PAPER; ctx.fill(); ctx.lineWidth = 1.4; ctx.strokeStyle = INK; ctx.stroke();
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+    path([-2.6, 14, 2.6, 14, 0, 23]); ctx.fillStyle = INK; ctx.fill();
+    oval(0, 6, 6, 9, 0, e.color, f, 2);
+    ctx.lineWidth = 1.8; ctx.strokeStyle = INK;
+    ctx.beginPath(); ctx.moveTo(-5.6, 4); ctx.quadraticCurveTo(0, 6.5, 5.6, 4); ctx.moveTo(-4.8, 9); ctx.quadraticCurveTo(0, 11.5, 4.8, 9); ctx.stroke();
+    oval(0, -4, 4.5, 4, 0, tone(e.color, -0.3), f, 2);
+    oval(0, -10.5, 4.5, 4, 0, tone(e.color, -0.5), f, 2);
+    eyes([[-2, -11.5], [2, -11.5]], 1.6);
+  },
+
+  gunner(e, f) {                      // SPITTER: bloated acid sac, bone spines; mouth gapes before it spits
+    ctx.scale(e.r / 24, e.r / 24);
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * TAU + 0.2, c = Math.cos(a), sn = Math.sin(a);
+      path([c * 17 - sn * 3.5, sn * 17 + c * 3.5, c * 28, sn * 28, c * 17 + sn * 3.5, sn * 17 - c * 3.5]);
+      ctx.fillStyle = BONE; ctx.fill(); ctx.lineWidth = 1.6; ctx.strokeStyle = INK; ctx.stroke();
+    }
+    const pulse = 1 + 0.05 * Math.sin(e.age * 5);
+    ctx.save(); ctx.scale(pulse, pulse); oval(0, 0, 20, 19, 0, e.color, f, 2.4); ctx.restore();
+    for (const j of [-1, 0, 1]) oval(j * 9, -9 + Math.abs(j) * 3, 7, 5, j * 0.4, CHITIN, f, 1.8);
+    const open = e.mode === 1 && e.fireT < 0.5 ? 1 - e.fireT / 0.5 : 0.15;
+    ctx.fillStyle = INK; ctx.beginPath(); ctx.ellipse(0, 11, 7, 2 + 5 * open, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#ff8fb0'; ctx.beginPath(); ctx.ellipse(0, 12 + 2 * open, 3.5, 1 + 2 * open, 0, 0, TAU); ctx.fill();
+    eyes([[-8, 4], [8, 4], [0, 1]], 2);
+  },
+
+  brute(e, f) {                       // BROOD BRUTE: armoured beetle, bone mandibles
+    const t = e.age; ctx.scale(e.r / 44, e.r / 44);
+    for (let i = 0; i < 3; i++) for (const sd of [-1, 1]) {
+      const w = Math.sin(t * 6 + i * 1.7 + sd) * 4, by = -12 + i * 14;
+      inkLine(4.5, [sd * 24, by, sd * 42, by - 6 + w, sd * 52, by + 12 + w]);
+    }
+    const o = 4 + 4 * Math.sin(t * 4);
+    for (const sd of [-1, 1]) boneHook(sd * 6, 30, sd * (30 + o), 38, sd * 5, 58, sd * 6, f);
+    oval(0, 26, 20, 14, 0, tone(e.color, -0.45), f, 3);
+    for (const sd of [-1, 1]) {
+      celBuild(() => {
+        ctx.beginPath();
+        ctx.ellipse(sd * 1, -6, 30, 32, 0, sd < 0 ? Math.PI / 2 : -Math.PI / 2, sd < 0 ? Math.PI * 1.5 : Math.PI / 2);
+        ctx.closePath();
+      }, e.color, 32, f, 3);
+      for (const [sx, sy, sr] of [[16, -18, 4], [20, -2, 3], [13, 10, 3.5]]) {
+        ctx.fillStyle = f ? PAPER : BONE; ctx.globalAlpha = 0.85;
+        ctx.beginPath(); ctx.arc(sd * sx, sy, sr, 0, TAU); ctx.fill(); ctx.globalAlpha = 1;
+      }
+    }
+    eyes([[-9, 26], [-3, 29], [3, 29], [9, 26]], 2.6);
+  },
+
+  mother(e, f) {                      // SPORE MOTHER: floating sac of pustules trailing tendrils
+    const t = e.age; ctx.scale(e.r / 48, e.r / 48);
+    for (let i = 0; i < 5; i++) tendril((i - 2) * 11, 24, (i - 2) * 15, 74, Math.sin(t * 3 + i) * 9, tone(e.color, 0.3), 3.5);
+    oval(0, -4, 42, 38, 0, e.color, f, 3);
+    const bumps = [[-20, -18, 8], [4, -26, 9], [24, -10, 7], [-28, 6, 6], [18, 12, 7], [-6, 4, 6], [6, -8, 5]];
+    bumps.forEach(([x, y, r], i) => { const g = r * (1 + 0.15 * Math.sin(t * 4 + i)); oval(x, y, g, g, 0, tone(e.color, 0.4), f, 1.8); });
+    oval(0, 30, 14, 10, 0, tone(e.color, -0.45), f, 2.4);
+    eyes([[-5, 31], [0, 33.5], [5, 31]], 2.4);
+  },
+
+  stalker(e, f) {                     // SCYTHE STALKER: mantis, bone scythes raised to strike
+    ctx.scale(e.r / 42, e.r / 42);
+    const flick = Math.sin(e.age * 30) * 0.1;
+    for (const sd of [-1, 1]) {
+      ctx.save(); ctx.translate(sd * 6, -18); ctx.rotate(sd * (0.6 + flick));
+      ctx.globalAlpha = 0.7; ctx.beginPath(); ctx.ellipse(sd * 14, 0, 18, 6, 0, 0, TAU);
+      ctx.fillStyle = PAPER; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = INK; ctx.stroke();
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+    oval(0, -22, 12, 22, 0, tone(e.color, -0.25), f, 2.4);
+    inkLine(1.6, [-10, -26, 10, -26]); inkLine(1.6, [-11, -16, 11, -16]);
+    const raise = e.mode === 2 ? 0.9 : 0.35 + Math.sin(e.spin || 0) * 0.35;
+    for (const sd of [-1, 1]) {
+      ctx.save(); ctx.translate(sd * 8, 4); ctx.rotate(-sd * raise);
+      for (const [lw, c] of [[8, INK], [4.5, e.color]]) { ctx.lineWidth = lw; ctx.strokeStyle = c; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(sd * 20, 14); ctx.stroke(); }
+      boneHook(sd * 20, 14, sd * 44, 4, sd * 34, 44, sd * 5, f);
+      ctx.restore();
+    }
+    oval(0, 4, 7, 14, 0, e.color, f, 2.2);
+    celBuild(() => path([-15, 16, 15, 16, 0, 34]), e.color, 16, f, 2.4);
+    oval(-8, 19, 5.5, 4.5, -0.3, EYE, f, 1.6); oval(8, 19, 5.5, 4.5, 0.3, EYE, f, 1.6);
+  },
+
+  queen(e, f) {                       // HIVE QUEEN: crowned brood-mother, four bone scythes
+    const t = e.age; ctx.scale(e.r / 66, e.r / 66);
+    const eyeC = e.phase === 3 ? COL.red : EYE;
+    for (let i = 0; i < 6; i++) {
+      const sd = i % 2 ? 1 : -1, k = Math.floor(i / 2);
+      tendril(sd * (20 + k * 10), -40 + k * 12, sd * (62 + k * 6), -70 + k * 22, Math.sin(t * 2.5 + i) * 10, tone(e.color, 0.25), 3.5);
+    }
+    oval(0, -34, 46, 40, 0, tone(e.color, -0.15), f, 3.2);
+    ctx.lineWidth = 2; ctx.strokeStyle = INK;
+    for (const yy of [-52, -38, -24]) { ctx.beginPath(); ctx.moveTo(-38, yy); ctx.quadraticCurveTo(0, yy + 10, 38, yy); ctx.stroke(); }
+    [[-18, -44], [16, -46], [-6, -30], [22, -28]].forEach(([x, y], i) => {
+      const g = 4.5 + Math.sin(t * 5 + i) * 1.2; oval(x, y, g, g, 0, '#ff9ad1', f, 1.4);
+    });
+    for (const sd of [-1, 1]) for (let j = 0; j < 2; j++) {
+      const sw = Math.sin(t * 3 + j * 1.5 + sd) * 4;
+      const bx = sd * 28, by = 2 + j * 14, ex = sd * (58 + j * 6), ey = 8 + j * 18 + sw;
+      for (const [lw, c] of [[8, INK], [4.5, e.color]]) { ctx.lineWidth = lw; ctx.strokeStyle = c; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(ex, ey); ctx.stroke(); }
+      boneHook(ex, ey, ex + sd * 14, ey + 20, ex - sd * 6, ey + 42, sd * 5, f);
+    }
+    for (const [x0, y0, x1, y1] of [[-30, 0, -50, -14], [-22, -6, -40, -28], [30, 0, 50, -14], [22, -6, 40, -28]]) {
+      path([x0 - 4, y0, x1, y1, x0 + 4, y0 - 4]); ctx.fillStyle = f ? PAPER : BONE; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = INK; ctx.stroke();
+    }
+    celBuild(() => path([-34, 4, -20, -8, 0, -12, 20, -8, 34, 4, 24, 30, 0, 40, -24, 30]), e.color, 36, f, 3);
+    const o = 3 + 3 * Math.sin(t * 5);
+    for (const sd of [-1, 1]) boneHook(sd * 8, 34, sd * (24 + o), 44, sd * 4, 62, sd * 6, f);
+    eyes([[-14, 12], [14, 12], [-8, 21], [8, 21], [-4, 5], [4, 5]], 3.4, eyeC);
+  },
 };
 
 function drawEnemy(e) {
   ctx.save();
   ctx.translate(e.x, e.y);
-  let flash = e.flash > 0;
-  if (e.type === 'diver') {
-    if (e.mode === 1 && Math.floor(e.wait * 12) % 2) flash = true;     // about to charge
-    if (e.mode === 2) ctx.rotate(Math.atan2(e.vy, e.vx) - Math.PI / 2);
-  }
-  cel(ENEMY_SHAPE[e.type], e.color, e.r, flash, e.type === 'boss' ? 3.2 : 2.4);
-  if (e.type === 'gunner') {
-    ctx.fillStyle = COL.gold;
-    ctx.beginPath(); ctx.arc(0, 0, 6, 0, TAU); ctx.fill();
-    ctx.lineWidth = 2; ctx.strokeStyle = INK; ctx.stroke();
-    ctx.fillStyle = INK; ctx.fillRect(-19, -31, 38, 6);
-    ctx.fillStyle = COL.gold; ctx.fillRect(-18, -30, 36 * Math.max(0, e.hp / e.maxHp), 4);
-  } else if (e.type === 'boss') {
-    ctx.lineWidth = 2; ctx.strokeStyle = INK;
-    path([0, 30, 10, 14, 0, -10, -10, 14]); ctx.stroke();
-    const r = 8 + 2 * Math.sin(e.age * 6);
-    ctx.fillStyle = COL.gold;
-    ctx.beginPath(); ctx.arc(0, 6, r, 0, TAU); ctx.fill();
-    ctx.lineWidth = 2.5; ctx.stroke();
-    ctx.fillStyle = PAPER;
-    ctx.beginPath(); ctx.arc(-2, 4, r * 0.35, 0, TAU); ctx.fill();
-  } else {
-    ctx.fillStyle = INK;
-    ctx.beginPath(); ctx.arc(0, -1, 2.2, 0, TAU); ctx.fill();
-  }
+  (CREATURE[e.type] || CREATURE.drone)(e, e.flash > 0);
   ctx.restore();
+  if (e.type === 'gunner') {              // small health bar over Spitters
+    ctx.fillStyle = INK; ctx.fillRect(e.x - 19, e.y - e.r - 12, 38, 6);
+    ctx.fillStyle = COL.gold; ctx.fillRect(e.x - 18, e.y - e.r - 11, 36 * Math.max(0, e.hp / e.maxHp), 4);
+  }
 }
 
 // ============================================================================
@@ -598,8 +774,20 @@ function drawHud() {
   ctx.fillStyle = COL.xp; ctx.fillRect(6, 5, (W - 12) * clamp(S.xp / need, 0, 1), 6);
 
   inkText(`LV ${S.level}`, 8, 28, 20, PAPER, 'left');
-  inkText(fmtTime(S.t), W / 2, 28, 20, PAPER);
-  inkText(`${S.kills} KILLS`, W / 2, 47, 13, COL.dim, 'center', FONT_D, 2.5);
+  const L = CFG.level.length;
+  inkText(fmtTime(Math.min(S.t, L)), W / 2, 28, 20, S.queenUp ? COL.red : PAPER);
+  inkText(S.queenUp ? 'FINAL BOSS' : `${S.kills} KILLS`, W / 2, 47, 13, S.queenUp ? COL.gold : COL.dim, 'center', FONT_D, 2.5);
+  // level progress: 3 mini-boss markers and the Queen at the end
+  const px = W / 2 - 60, pw = 120, py = 60;
+  ctx.fillStyle = INK; ctx.fillRect(px - 2, py - 2, pw + 4, 6);
+  ctx.fillStyle = '#3a3366'; ctx.fillRect(px, py, pw, 2);
+  ctx.fillStyle = COL.gold; ctx.fillRect(px, py, pw * Math.min(1, S.t / L), 2);
+  for (const t of [...CFG.level.miniBosses, L]) {
+    const x = px + pw * (t / L), last = t === L, done = S.t >= t;
+    ctx.beginPath(); ctx.arc(x, py + 1, last ? 5 : 3.6, 0, TAU);
+    ctx.fillStyle = done ? COL.red : last ? '#d81b60' : '#6b6590'; ctx.fill();
+    ctx.lineWidth = 1.6; ctx.strokeStyle = INK; ctx.stroke();
+  }
   inkText(`${Math.floor(S.credits)} CR`, W - 50, 28, 18, COL.gold, 'right');
 
   // hull hearts, top right
@@ -660,16 +848,16 @@ function drawHud() {
   // Boss warning + health bar
   if (S.warn > 0 && Math.floor(S.warn * 4) % 2 === 0) {
     burstTitle('WARNING!', W / 2, H * 0.36, 40, COL.gold, COL.red);
-    panel(W / 2 - 90, H * 0.36 + 38, 180, 24, PAPER, 3);
-    plainText('CAPITAL SHIP INBOUND', W / 2, H * 0.36 + 51, 13, INK);
+    panel(W / 2 - 115, H * 0.36 + 38, 230, 24, PAPER, 3);
+    plainText(`${S.warnName} INBOUND`, W / 2, H * 0.36 + 51, 14, INK);
   }
-  const boss = S.enemies.find(e => e.type === 'boss' && !e.dead);
+  const boss = S.enemies.find(e => e.boss && !e.dead);
   if (boss) {
-    const y = 100;
+    const y = 98;
     ctx.fillStyle = INK; ctx.fillRect(18, y, W - 36, 10);
     ctx.fillStyle = '#3a3366'; ctx.fillRect(20, y + 2, W - 40, 6);
     ctx.fillStyle = boss.color; ctx.fillRect(20, y + 2, (W - 40) * Math.max(0, boss.hp / boss.maxHp), 6);
-    inkText('CAPITAL SHIP', W / 2, y + 18, 11, PAPER, 'center', FONT_D, 2.5);
+    inkText(ENEMY[boss.type].name, W / 2, y + 18, 12, PAPER, 'center', FONT_D, 2.5);
   }
 }
 
@@ -747,6 +935,10 @@ function drawTitle() {
   ctx.restore();
 
   // caption box with the basics
+  if (META.notice) {
+    panel(28, cy - 66, W - 56, 28, COL.xp, 3);
+    plainText(META.notice, W / 2, cy - 51, 15, INK);
+  }
   const by0 = cy + 100;
   panel(28, by0, W - 56, 64, COL.gold, 4);
   const lines = ['Drag anywhere to fly. You fire on your own.', 'Grab green gems to level up.', 'Only the white dot can be hit!'];
@@ -784,7 +976,13 @@ function drawHangar() {
   drawTab('tabShips', 16, 84, tw, 34, 'SHIPS', 'ships');
   drawTab('tabUps', 28 + tw, 84, tw, 34, 'UPGRADES', 'upgrades');
   if (hangarTab === 'ships') drawShipGrid(130, H - 78);
-  else drawUpgradeList(130, H - 78);
+  else {
+    const sh = curShip();
+    drawShip(34, 150, 1.05, sh);
+    inkText(`${sh.name} UPGRADES`, 58, 143, 20, sh.color, 'left');
+    plainText(`${sh.role.toUpperCase()} · switch ship in SHIPS`, 58, 162, 10.5, COL.dim, 'left', FONT_B);
+    drawUpgradeList(176, H - 78);
+  }
   drawButton('back', 16, H - 64, tw, 48, 'BACK', '#5a5480', () => { newGame('title'); });
   drawButton('launch', 28 + tw, H - 64, tw, 48, 'LAUNCH!', COL.xp, startGame);
 }
@@ -838,7 +1036,7 @@ function drawShipGrid(top, bottom) {
 }
 
 function drawUpgradeList(top, bottom) {
-  const rowH = clamp((bottom - top) / HANGAR.length, 44, 62);
+  const rowH = clamp((bottom - top) / HANGAR.length, 40, 60);
   HANGAR.forEach((h, i) => {
     const y = top + i * rowH, lv = ML(h.id), maxed = lv >= h.max, cost = hangarCost(h), afford = !maxed && META.bank >= cost;
     const pressed = S.uiPress === 'h' + i, d = pressed ? 3 : 0;
@@ -846,7 +1044,7 @@ function drawUpgradeList(top, bottom) {
     const flash = S.flash && S.flash.id === h.id;
     panel(r.x + d, r.y + d, r.w, r.h, flash ? COL.gold : PAPER, pressed ? 0 : 3);
     plainText(h.name, r.x + 10 + d, r.y + r.h * 0.32 + d, 16, INK, 'left');
-    plainText(typeof h.desc === 'function' ? h.desc(lv) : h.desc, r.x + 10 + d, r.y + r.h * 0.72 + d, 11, '#4a4470', 'left', FONT_B);
+    plainText(typeof h.desc === 'function' ? h.desc(lv, maxed) : h.desc, r.x + 10 + d, r.y + r.h * 0.72 + d, 11, '#4a4470', 'left', FONT_B);
     const pipW = Math.min(8, 60 / h.max - 2);
     for (let k = 0; k < h.max; k++) {
       const px = r.x + r.w - 84 - h.max * (pipW + 2) + k * (pipW + 2) + d, py = r.y + r.h * 0.32 - 4 + d;
@@ -875,7 +1073,9 @@ function drawPaused() {
 function drawGameOver() {
   dim(0.55);
   const cy = H * 0.2;
-  burstTitle(S.quit ? 'RUN ENDED' : 'SHIP LOST!', W / 2, cy, 46, S.quit ? COL.player : COL.red, COL.gold);
+  const won = S.state === 'won';
+  burstTitle(won ? 'LEVEL CLEAR!' : S.quit ? 'RUN ENDED' : 'SHIP LOST!', W / 2, cy, 46, won ? COL.xp : S.quit ? COL.player : COL.red, COL.gold);
+  if (won) inkText('THE HIVE QUEEN IS DEAD!', W / 2, cy + 40, 16, PAPER);
   const rows = [['SURVIVED', fmtTime(S.t)], ['LEVEL', String(S.level)], ['KILLS', String(S.kills)], ['BEST', fmtTime(META.best)]];
   const py = cy + 62;
   panel(50, py, W - 100, 22 + rows.length * 24, PAPER);
@@ -914,7 +1114,7 @@ function render() {
   else if (S.state === 'hangar') drawHangar();
   else if (S.state === 'levelup') drawLevelUp();
   else if (S.state === 'paused') drawPaused();
-  else if (S.state === 'over') drawGameOver();
+  else if (S.state === 'over' || S.state === 'won') drawGameOver();
 }
 
 // ============================================================================
