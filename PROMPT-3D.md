@@ -12,7 +12,7 @@ within the screen while it fires automatically.
 **Read `DESIGN.md` in this repo first.** It's the full design: every weapon, passive, ship, pilot,
 ultimate, Hangar upgrade, the five-stage campaign with carry-over, every boss pattern, the difficulty
 scaling and the art and music direction, with real numbers. §14 covers the 3D adaptation. The
-original Android game lives in my **void-survivors** repository (`www/game.js` is the rules,
+original Android game lives in my **void-survivors-** repository (note the trailing dash) (`www/game.js` is the rules,
 `www/art.js` the drawing, `www/audio.js` the synthesized music, `www/pilots.js` the pilots). Use it
 whenever you need an exact formula. Keep the systems and numbers faithful unless I say otherwise.
 
