@@ -47,4 +47,4 @@ Open `www/index.html` in a browser. Arrow keys or WASD move, 1/2/3 pick an upgra
    enemies, a 15-minute level with 3 mini-bosses (3:45, 7:30, 11:15) and the Hive Queen at 15:00.
 6. **Feel pass**: tune difficulty, sound effects and music, screen effects.
 7. **Real Android app** (done): Capacitor wrapper, APK built by GitHub Actions and posted to Releases.
-8. **More content**: more levels,: more bosses and enemy patterns, weapon evolutions.
+8. **More content**: more levels, more bosses and enemy patterns, weapon evolutions.
