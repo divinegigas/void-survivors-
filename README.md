@@ -7,12 +7,13 @@ upgrade. Kills pay credits to spend in the Hangar between runs.
 This is separate from Neon Cable 42. It lives in its own folder and its own branch.
 
 ## Files
-- `www/game.js` is the whole game. The **TUNING** block at the top holds the numbers to tweak.
-- `www/index.html` + `www/game.css` are the page the Android app will load (step 3).
+- `www/game.js` is the game rules. The **TUNING** block at the top holds the numbers to tweak.
+- `www/art.js` is everything you see: the pop-art comic style, menus, and the main loop.
+- `www/index.html` + `www/game.css` are the page the Android app will load.
 - `artifact.html` is the same game wrapped for the shareable claude.ai link.
 
 ## Try it on a computer
-Open `www/index.html` in a browser. Arrow keys or WASD move, 1/2/3 pick an upgrade, P pauses.
+Open `www/index.html` in a browser. Arrow keys or WASD move, 1/2/3 pick an upgrade, E fires the ultimate, P pauses.
 
 ## Roadmap
 1. **Core loop** (done): auto-fire, enemies, XP crystals, level-ups.
@@ -23,6 +24,8 @@ Open `www/index.html` in a browser. Arrow keys or WASD move, 1/2/3 pick an upgra
    uncommon / rare tiers (green / purple / gold) for weapons and passives, Deflector Shield in the Hangar.
    Ships have no basic cannon: each fires only its signature weapon (20% faster cooldown on its own
    ship) plus whatever it picks up.
-4. **Feel pass**: tune difficulty, sound effects and music, screen effects.
-5. **Real Android app**: wrap `www/` with Capacitor and build the APK on GitHub (no Android Studio needed).
-6. **More content**: more bosses and enemy patterns, weapon evolutions.
+4. **Ultimates + pop art** (done): Autocannon as a common card, level-10 ultimate choice
+   (6 ultimates, double-tap to fire), comic-book cel-shaded look with halftone dots and POW! bursts.
+5. **Feel pass**: tune difficulty, sound effects and music, screen effects.
+6. **Real Android app**: wrap `www/` with Capacitor and build the APK on GitHub (no Android Studio needed).
+7. **More content**: more bosses and enemy patterns, weapon evolutions.

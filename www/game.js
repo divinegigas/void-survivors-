@@ -22,6 +22,8 @@ const CFG = {
   },
 
   slots: { weapons: 4, passives: 4 },
+  ultLevel: 10,               // level that offers a choice of ultimate (double-tap to fire)
+  ultCooldownMul: 1,          // 0.5 = ultimates recharge twice as fast
   signatureCooldown: 0.8,     // a ship's own weapon fires 20% faster than the same weapon picked up later (1 = no bonus)   // your ship's signature weapon is a bonus slot on top
   rarityWeights: { common: 4, uncommon: 2, rare: 1 },   // common is 2x as likely as uncommon, which is 2x rare
   shipCost: { common: 150, uncommon: 450, rare: 1000 }, // credits to unlock a ship, by its weapon's tier
@@ -81,16 +83,18 @@ function compact(arr) {          // remove dead things without allocating a new 
 function buzz(ms) { try { navigator.vibrate && navigator.vibrate(ms); } catch (e) {} }
 
 const TIER = {
-  common:   { name: 'COMMON',   color: '#5dff9e' },
-  uncommon: { name: 'UNCOMMON', color: '#b26bff' },
-  rare:     { name: 'RARE',     color: '#ffd23f' },
+  common:   { name: 'COMMON',   color: '#3ddc4a' },
+  uncommon: { name: 'UNCOMMON', color: '#a45cff' },
+  rare:     { name: 'RARE',     color: '#ffd60a' },
+  ult:      { name: 'ULTIMATE', color: '#ff3b3b' },
 };
 
-const FONT = '"Orbitron", "Segoe UI", system-ui, sans-serif';
+// Pop-art palette (art.js has the full drawing style).
 const COL = {
-  bg: '#05030f', player: '#3df5ff', playerDark: '#0b2a44', flame: '#ff4fd8',
-  xp: '#5dff9e', enemyShot: '#ff3d8b', text: '#e8f7ff', dim: '#7d86a8', gold: '#ffd23f',
+  ink: '#14101f', paper: '#fff8e7', player: '#2ec5ff', flame: '#ff3fa4', red: '#ff3b3b',
+  xp: '#3ddc4a', enemyShot: '#ff3fa4', text: '#fff8e7', dim: '#9d97c4', gold: '#ffd60a',
 };
+const pick = arr => arr[Math.floor(Math.random() * arr.length)];
 
 // ============================================================================
 // Saved progress (credits bank, hangar upgrades, best time). Lives on the phone.
@@ -163,77 +167,7 @@ function resize() {
   SCALE = cv.width / W;
   H = cv.height / SCALE;
   if (S) { S.p.x = clamp(S.p.x, 12, W - 12); S.p.y = clamp(S.p.y, 100, H - 20); }
-  initStars();
-}
-
-// Pre-rendered soft glow dots, one per colour (fast to draw many of them).
-const glowCache = {};
-function glowSprite(color) {
-  if (glowCache[color]) return glowCache[color];
-  const c = document.createElement('canvas');
-  c.width = c.height = 64;
-  const g = c.getContext('2d');
-  const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
-  gr.addColorStop(0, color);
-  gr.addColorStop(0.3, color + '88');
-  gr.addColorStop(1, color + '00');
-  g.fillStyle = gr;
-  g.fillRect(0, 0, 64, 64);
-  return (glowCache[color] = c);
-}
-function glow(x, y, r, color, a) {
-  ctx.globalAlpha = a;
-  ctx.drawImage(glowSprite(color), x - r, y - r, r * 2, r * 2);
-  ctx.globalAlpha = 1;
-}
-
-// Enemy bullet sprite: pink glow + white core, so bullets are always readable.
-const eShotSprite = (() => {
-  const c = document.createElement('canvas');
-  c.width = c.height = 48;
-  const g = c.getContext('2d');
-  const gr = g.createRadialGradient(24, 24, 0, 24, 24, 24);
-  gr.addColorStop(0, '#ffffff');
-  gr.addColorStop(0.18, '#ffffff');
-  gr.addColorStop(0.28, COL.enemyShot);
-  gr.addColorStop(0.55, COL.enemyShot + '55');
-  gr.addColorStop(1, COL.enemyShot + '00');
-  g.fillStyle = gr;
-  g.fillRect(0, 0, 48, 48);
-  return c;
-})();
-
-// ============================================================================
-// Background stars
-// ============================================================================
-let stars = [];
-const STAR_SPEED = [16, 38, 85], STAR_SIZE = [0.8, 1.2, 1.8], STAR_ALPHA = [0.35, 0.6, 0.95];
-function initStars() {
-  stars = [];
-  for (let i = 0; i < 100; i++) stars.push({ x: Math.random() * W, y: Math.random() * H, l: i % 3 });
-}
-let nebulaY = 0;
-function updateStars(dt) {
-  for (const s of stars) {
-    s.y += STAR_SPEED[s.l] * dt;
-    if (s.y > H) { s.y -= H; s.x = Math.random() * W; }
-  }
-  nebulaY += 8 * dt;
-}
-function drawStars() {
-  ctx.globalCompositeOperation = 'lighter';
-  const ny = nebulaY % (H * 2);
-  glow(W * 0.2, ny - H * 0.5, 260, '#5b1d8f', 0.18);
-  glow(W * 0.85, ny + H * 0.4, 230, '#0d4f6b', 0.18);
-  glow(W * 0.6, ny - H * 1.4, 240, '#7a1550', 0.14);
-  ctx.globalCompositeOperation = 'source-over';
-  for (const s of stars) {
-    ctx.globalAlpha = STAR_ALPHA[s.l];
-    ctx.fillStyle = s.l === 2 ? '#bfefff' : '#ffffff';
-    const sz = STAR_SIZE[s.l];
-    ctx.fillRect(s.x, s.y, sz, s.l === 2 ? sz * 3 : sz);
-  }
-  ctx.globalAlpha = 1;
+  if (typeof artResize === 'function') artResize();
 }
 
 // ============================================================================
@@ -243,7 +177,7 @@ function drawStars() {
 // .speed (projectile speed), .pierce.
 // ============================================================================
 function shoot(b) { S.bullets.push(b); return b; }
-const cd = base => base * S.mod.cd * (S.sig ? CFG.signatureCooldown : 1);
+const cd = base => base * S.mod.cd * (S.sig ? CFG.signatureCooldown : 1) * (S.overdrive > 0 ? 0.33 : 1);
 const spd = v => v * S.mod.speed;
 function nearestEnemy(x, y, maxDist, skip) {
   let best = null, bd = maxDist * maxDist;
@@ -263,6 +197,17 @@ function gunShot(x, y, angle, speed, dmg, color, r) {
 const UP = -Math.PI / 2;
 
 const WEAPONS = {
+  cannon: {
+    name: 'Autocannon', color: '#fff8e7', glyph: '❚', tier: 'common',
+    levels: ['Rapid-fire forward cannon', 'More damage', 'Twin barrels', 'Faster fire', 'Triple barrels'],
+    update(w, dt) {
+      if ((w.t -= dt) > 0) return;
+      w.t = cd(w.lvl >= 4 ? 0.13 : 0.16);
+      const n = Math.min(5, (w.lvl >= 5 ? 3 : w.lvl >= 3 ? 2 : 1) + S.mod.count), dmg = 8 + 2 * w.lvl;
+      for (let i = 0; i < n; i++) gunShot(S.p.x + (i - (n - 1) / 2) * 8, S.p.y - 16, UP, CFG.player.bulletSpeed, dmg, '#ffd60a');
+    },
+  },
+
   spread: {
     name: 'Spread Shot', color: '#ffd23f', glyph: '✶', tier: 'common',
     levels: ['Fires a fan of 3 shots', '4 shots, wider', '5 shots, more damage', '6 shots, faster', '7 shots, max fan'],
@@ -270,7 +215,7 @@ const WEAPONS = {
       if ((w.t -= dt) > 0) return;
       w.t = cd(0.62 - 0.05 * w.lvl);
       const n = 2 + w.lvl + S.mod.count, spread = (16 + 9 * w.lvl) * Math.PI / 180;
-      for (let i = 0; i < n; i++) gunShot(S.p.x, S.p.y - 10, UP - spread / 2 + spread * (i / (n - 1)), 560, 6 + 1.5 * w.lvl, this.color);
+      for (let i = 0; i < n; i++) gunShot(S.p.x, S.p.y - 10, UP - spread / 2 + spread * (i / (n - 1)), 560, 7.5 + 1.5 * w.lvl, this.color);
     },
   },
 
@@ -317,7 +262,6 @@ const WEAPONS = {
       const dmg = CFG.player.damage * (0.4 + 0.15 * w.lvl);
       for (const side of [-1, 1]) gunShot(S.p.x + side * 24, S.p.y - 4, UP, CFG.player.bulletSpeed, dmg, this.color);
     },
-    draw(w) { for (const s of [-1, 1]) drawShip(S.p.x + s * 24, S.p.y + 4, 0.5, S.ship); },
   },
 
   nova: {
@@ -347,19 +291,6 @@ const WEAPONS = {
           if ((e.x - x) ** 2 + (e.y - y) ** 2 < (sr + e.r) ** 2) { e.orbT = S.t + 0.3; hitEnemy(e, dmg, false); }
         }
         for (const b of S.ebullets) if ((b.x - x) ** 2 + (b.y - y) ** 2 < (sr + b.r) ** 2) b.dead = true;
-      }
-    },
-    draw(w) {
-      if (!w.pos) return;
-      const sr = 6 * Math.sqrt(S.mod.area);
-      ctx.globalCompositeOperation = 'lighter';
-      for (let i = 0; i < w.pos.length; i += 2) glow(w.pos[i], w.pos[i + 1], sr * 3, this.color, 0.6);
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.fillStyle = '#e8fff8';
-      for (let i = 0; i < w.pos.length; i += 2) {
-        const x = w.pos[i], y = w.pos[i + 1];
-        path([x, y - sr, x + sr * 0.6, y, x, y + sr, x - sr * 0.6, y]);
-        ctx.fill();
       }
     },
   },
@@ -409,8 +340,8 @@ const WEAPONS = {
       const angles = w.lvl >= 5 ? [UP - 0.25, UP + 0.25] : [UP];
       for (const a of angles) {
         shoot({ x: S.p.x, y: S.p.y - 12, vx: Math.cos(a) * spd(420), vy: Math.sin(a) * spd(420), r: 5, dmg: 10,
-                kind: 'flak', fuse: 0.45, shards: 6 + 2 * w.lvl + 2 * S.mod.count, sdmg: 5 + 2.5 * w.lvl,
-                slife: (0.3 + (w.lvl >= 4 ? 0.1 : 0)) * S.mod.area, color: this.color });
+                kind: 'flak', fuse: 0.45, shards: 6 + 2 * w.lvl + 2 * S.mod.count, sdmg: 7 + 2.5 * w.lvl,
+                slife: (0.45 + (w.lvl >= 4 ? 0.1 : 0)) * S.mod.area, color: this.color });
       }
     },
   },
@@ -436,9 +367,9 @@ const WEAPONS = {
     levels: ['Wide, slow wave that pierces everything', 'Wider wave', 'Faster waves', 'More damage', 'Double waves'],
     update(w, dt) {
       if ((w.t -= dt) > 0) return;
-      w.t = cd(1.7 - 0.12 * w.lvl);
+      w.t = cd(1.9 - 0.12 * w.lvl);
       const fire = delay => shoot({ x: S.p.x, y: S.p.y - 20 + delay, vx: 0, vy: -spd(260), r: 0,
-        hw: (40 + 8 * w.lvl) * S.mod.area, dmg: 14 + 6 * w.lvl + (w.lvl >= 4 ? 8 : 0),
+        hw: (40 + 8 * w.lvl) * S.mod.area, dmg: 9 + 5 * w.lvl + (w.lvl >= 4 ? 8 : 0),
         kind: 'wave', pierce: 999, hits: new Set(), color: this.color });
       fire(0);
       if (w.lvl >= 5) fire(40);
@@ -464,19 +395,80 @@ const WEAPONS = {
         gunShot(d.x, d.y, Math.atan2(e.y - d.y, e.x - d.x), 520, 7 + 2.5 * w.lvl + (w.lvl >= 4 ? 4 : 0), this.color, 2.5);
       });
     },
-    draw(w) {
-      if (!w.drones) return;
-      for (const d of w.drones) {
-        ctx.globalCompositeOperation = 'lighter';
-        glow(d.x, d.y, 14, this.color, 0.4);
-        ctx.globalCompositeOperation = 'source-over';
-        path([d.x, d.y - 7, d.x + 5, d.y, d.x, d.y + 7, d.x - 5, d.y]);
-        ctx.fillStyle = '#1a1f3a'; ctx.fill();
-        ctx.strokeStyle = this.color; ctx.lineWidth = 1.5; ctx.stroke();
-      }
-    },
   },
 };
+
+// ============================================================================
+// Ultimates: offered at CFG.ultLevel. Double-tap the screen to fire; long cooldown.
+// ============================================================================
+const ULTS = {
+  nuke:      { name: 'Megaton',       glyph: '☢', word: 'KA-BOOM!',   cooldown: 75,
+               desc: 'Hits every enemy on screen for huge damage and wipes all bullets',
+               fire() { for (const e of S.enemies) if (!e.dead && e.y > -10) hitEnemy(e, 400, true);
+                        for (const b of S.ebullets) b.dead = true; S.shake = 0.8; S.whiteout = 0.35; } },
+  overdrive: { name: 'Overdrive',     glyph: '⚡', word: 'OVERDRIVE!', cooldown: 60,
+               desc: 'All weapons fire 3x faster for 8 seconds',
+               fire() { S.overdrive = 8; for (const id in S.weapons) S.weapons[id].t = 0; } },
+  warp:      { name: 'Time Warp',     glyph: '⌛', word: 'TIME WARP!', cooldown: 60,
+               desc: 'Enemies and their bullets crawl at quarter speed for 7 seconds',
+               fire() { S.warp = 7; } },
+  barrage:   { name: 'Missile Storm', glyph: '➹', word: 'WHOOSH!',    cooldown: 50,
+               desc: 'Launches 32 homing missiles over two seconds',
+               fire() { S.barrage = { left: 32, t: 0 }; } },
+  phase:     { name: 'Phase Ram',     glyph: '◈', word: 'PHASE RAM!', cooldown: 50,
+               desc: 'Untouchable for 6 seconds: ram enemies and eat bullets',
+               fire() { S.phase = 6; } },
+  hole:      { name: 'Black Hole',    glyph: '◉', word: 'VWOOMP!',    cooldown: 65,
+               desc: 'A black hole sucks in enemies and bullets for 6 seconds',
+               fire() { S.hole = { x: S.p.x, y: Math.max(130, S.p.y - 200), t: 6 }; } },
+};
+const ultCooldown = id => ULTS[id].cooldown * CFG.ultCooldownMul;
+
+function activateUlt() {
+  if (!S.ult || S.ult.cd > 0 || S.state !== 'play') return;
+  const u = ULTS[S.ult.id];
+  S.ult.cd = ultCooldown(S.ult.id);
+  u.fire();
+  burst(W / 2, S.p.y - 90, 70, u.word, COL.gold);
+  buzz([40, 30, 80]);
+}
+
+function updateUlts(dt) {
+  if (S.ult) S.ult.cd = Math.max(0, S.ult.cd - dt);
+  S.overdrive = Math.max(0, (S.overdrive || 0) - dt);
+  S.warp = Math.max(0, (S.warp || 0) - dt);
+  S.phase = Math.max(0, (S.phase || 0) - dt);
+  S.whiteout = Math.max(0, (S.whiteout || 0) - dt);
+  const p = S.p;
+  if (S.barrage && (S.barrage.t -= dt) <= 0) {
+    S.barrage.t = 0.06;
+    const side = S.barrage.left % 2 ? 1 : -1;
+    shoot({ x: p.x + side * 12, y: p.y, vx: side * rand(150, 260), vy: rand(-60, 40), r: 4, dmg: 40, aoe: 30,
+            kind: 'rocket', life: 3.5, target: null, retarget: 0, color: '#ff8c1a' });
+    if (--S.barrage.left <= 0) S.barrage = null;
+  }
+  if (S.phase > 0) {
+    for (const e of S.enemies) if (!e.dead && (e.x - p.x) ** 2 + (e.y - p.y) ** 2 < (e.r + 24) ** 2) hitEnemy(e, 220 * dt, true);
+    clearBulletsNear(p.x, p.y, 26);
+  }
+  const h = S.hole;
+  if (h) {
+    h.t -= dt;
+    const R = 170;
+    for (const e of S.enemies) {
+      if (e.dead) continue;
+      const dx = h.x - e.x, dy = h.y - e.y, d = Math.hypot(dx, dy) || 1;
+      if (d < R && e.type !== 'boss') { const pull = (60 + 200 * (1 - d / R)) * dt; e.x += dx / d * pull; e.y += dy / d * pull; if (e.bx !== undefined) e.bx += dx / d * pull; }
+      if (d < 40 + e.r) hitEnemy(e, 160 * dt, true);
+    }
+    for (const b of S.ebullets) {
+      const dx = h.x - b.x, dy = h.y - b.y, d = Math.hypot(dx, dy) || 1;
+      if (d < 22) b.dead = true;
+      else if (d < R) { b.vx += dx / d * 600 * dt; b.vy += dy / d * 600 * dt; }
+    }
+    if (h.t <= 0) S.hole = null;
+  }
+}
 
 // ============================================================================
 // Passives (12). levels[i] describes what level i+1 gives.
@@ -560,7 +552,8 @@ function newGame(state) {
     t: 0, kills: 0, level: 1, xp: 0, shake: 0, credits: 0,
     p: { x: W / 2, y: H * 0.78, hp: 0, maxHp: 0, invuln: 0, magnet: 0, bubble: false, bubbleT: 0, repairT: 0 },
     weapons: {}, passives: {}, mod: null,
-    bullets: [], ebullets: [], enemies: [], orbs: [], parts: [], novas: [], zaps: [], texts: [], laser: null,
+    bullets: [], ebullets: [], enemies: [], orbs: [], parts: [], novas: [], zaps: [], texts: [], bursts: [], laser: null,
+    ult: null, overdrive: 0, warp: 0, phase: 0, hole: null, barrage: null, whiteout: 0,
     spawnT: CFG.spawn.graceTime, nextBoss: CFG.boss.first, bossCount: 0, warn: 0,
     pending: 0, choices: null, choiceLevel: 0, uiLock: 0, uiPress: null, flash: null,
     rerolls: ML('reroll'), revives: ML('revive'),
@@ -577,11 +570,11 @@ function newGame(state) {
 // Enemies
 // ============================================================================
 const ENEMY = {
-  drone:  { hp: 20,   r: 12, xp: 1,  credits: 1, color: '#ff3d8b' },
-  weaver: { hp: 14,   r: 11, xp: 1,  credits: 1, color: '#ff9d3d' },
-  diver:  { hp: 26,   r: 12, xp: 2,  credits: 1, color: '#ff4040' },
-  gunner: { hp: 120,  r: 20, xp: 6,  credits: 3, color: '#b45dff' },
-  boss:   { hp: 2200, r: 34, xp: 30, credits: 0, color: '#ff2d6f' },   // boss bounty: CFG.boss
+  drone:  { hp: 20,   r: 12, xp: 1,  credits: 1, color: '#ff3b3b' },
+  weaver: { hp: 14,   r: 11, xp: 1,  credits: 1, color: '#ff8c1a' },
+  diver:  { hp: 26,   r: 12, xp: 2,  credits: 1, color: '#ff3fa4' },
+  gunner: { hp: 120,  r: 20, xp: 6,  credits: 3, color: '#8f5cff' },
+  boss:   { hp: 2200, r: 34, xp: 30, credits: 0, color: '#e8233a' },   // boss bounty: CFG.boss
 };
 
 function spawnEnemy(type, x, y, extra) {
@@ -726,6 +719,7 @@ function killEnemy(e) {
   e.dead = true;
   S.kills++;
   const big = e.type === 'boss';
+  comicKill(e, big);
   sparks(e.x, e.y, e.color, big ? 80 : e.type === 'gunner' ? 30 : 14);
   sparks(e.x, e.y, '#ffffff', big ? 30 : 5);
   if (big) {
@@ -753,7 +747,8 @@ function explode(x, y, radius, dmg) {
     const dx = e.x - x, dy = e.y - y, rr = radius + e.r;
     if (dx * dx + dy * dy < rr * rr) hitEnemy(e, dmg, true);
   }
-  sparks(x, y, '#ff8a3d', 12);
+  sparks(x, y, '#ff8c1a', 8);
+  burst(x, y, radius * 0.9, null, '#ff8c1a');
   S.novas.push({ x, y, r: 0, max: radius, dmg: 0, age: 0, hit: null, color: '#ff8a3d', small: true });
 }
 
@@ -771,7 +766,7 @@ function flakBurst(b) {
 // ============================================================================
 function damagePlayer() {
   const p = S.p;
-  if (p.invuln > 0) return false;
+  if (p.invuln > 0 || S.phase > 0) return false;
   if (p.bubble) {                       // Deflector Shield soaks one hit, then recharges
     p.bubble = false; p.bubbleT = shieldRecharge(); p.invuln = 0.6;
     sparks(p.x, p.y, '#6bd6ff', 18); buzz(40);
@@ -787,6 +782,7 @@ function damagePlayer() {
   S.shake = 0.4;
   buzz(p.hp > 0 ? 90 : 300);
   sparks(p.x, p.y, COL.player, 20);
+  burst(p.x, p.y - 26, 30, pick(['OOF!', 'WHAM!', 'ARGH!']), COL.red);
   clearBulletsNear(p.x, p.y, 70);       // mercy
   if (p.hp <= 0) {
     if (S.revives > 0) {                // Second Wind
@@ -809,6 +805,18 @@ function sparks(x, y, color, n) {
     S.parts.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: rand(0.25, 0.6), age: 0, color, size: rand(1.2, 2.6) });
   }
 }
+// Comic-book starbursts. word = null for a plain blast.
+const WORDS_SMALL = ['POP!', 'ZAP!', 'BAM!', 'POW!'], WORDS_MED = ['BLAM!', 'KRAK!', 'KA-POW!', 'WHAM!'];
+function burst(x, y, size, word, color) {
+  if (S.bursts.length > 14) return;
+  S.bursts.push({ x, y, size, word, age: 0, life: word ? 0.75 : 0.3, rot: rand(-0.3, 0.3), color: color || COL.gold, spikes: word ? 12 : 9 });
+}
+function comicKill(e, big) {
+  if (big) burst(e.x, e.y, 95, 'KA-BOOM!', COL.gold);
+  else if (e.type === 'gunner') burst(e.x, e.y, 46, pick(WORDS_MED), COL.gold);
+  else if (Math.random() < 0.15 && S.bursts.filter(b => b.word).length < 3) burst(e.x, e.y, 30, pick(WORDS_SMALL), COL.gold);
+  else burst(e.x, e.y, e.r * 1.5, null, e.color);
+}
 function floatText(x, y, txt, color, size) { S.texts.push({ x, y, txt, color, size, age: 0 }); }
 
 function updateParticles(dt) {
@@ -820,7 +828,8 @@ function updateParticles(dt) {
   }
   for (const t of S.texts) { t.age += dt; t.y -= 25 * dt; if (t.age > 1.2) t.dead = true; }
   for (const z of S.zaps) { z.age += dt; if (z.age > 0.18) z.dead = true; }
-  compact(S.parts); compact(S.texts); compact(S.zaps);
+  for (const b of S.bursts) { b.age += dt; if (b.age > b.life) b.dead = true; }
+  compact(S.parts); compact(S.texts); compact(S.zaps); compact(S.bursts);
 }
 
 function gameOver(quit) {
@@ -848,6 +857,9 @@ function pickWeighted(arr) {      // rarer things show up less often
   return arr.pop();
 }
 function buildChoices() {
+  if (S.choiceLevel === CFG.ultLevel && !S.ult) {
+    return shuffle(Object.keys(ULTS)).slice(0, CFG.upgradeChoices).map(id => ({ kind: 'ult', id }));
+  }
   const ups = [], newW = [], newP = [];
   for (const id in S.weapons) if (S.weapons[id].lvl < CFG.maxLevel) ups.push({ kind: 'wup', id });
   for (const id in S.passives) if (S.passives[id].lvl < passiveMax(id)) ups.push({ kind: 'pup', id });
@@ -873,6 +885,11 @@ function buildChoices() {
 }
 
 function choiceInfo(c) {
+  if (c.kind === 'ult') {
+    const u = ULTS[c.id];
+    return { title: u.name, desc: u.desc, glyph: u.glyph, color: TIER.ult.color, icon: COL.paper,
+             tier: 'ULTIMATE', tag: `DOUBLE-TAP · ${ultCooldown(c.id)}s RECHARGE` };
+  }
   const nW = slotWeapons().length, nP = Object.keys(S.passives).length;
   if (c.kind === 'fill') {
     return c.id === 'repair'
@@ -914,6 +931,7 @@ function choose(i) {
     case 'wup':  S.weapons[c.id].lvl++; break;
     case 'pnew': S.passives[c.id] = { lvl: 1 }; break;
     case 'pup':  S.passives[c.id].lvl++; break;
+    case 'ult':  S.ult = { id: c.id, cd: 0 }; S.ultHint = 5; break;
     case 'fill': if (c.id === 'repair') p.hp = Math.min(p.maxHp, p.hp + 1); else S.credits += 15; break;
   }
   const before = p.maxHp;
@@ -974,9 +992,12 @@ function gameUpdate(dt) {
   }
 
   updateBullets(dt);
+  updateUlts(dt);
+  S.ultHint = Math.max(0, (S.ultHint || 0) - dt);
 
-  // --- enemies
-  for (const e of S.enemies) if (!e.dead) updateEnemy(e, dt);
+  // --- enemies (Time Warp slows them and their bullets)
+  const edt = S.warp > 0 ? dt * 0.25 : dt;
+  for (const e of S.enemies) if (!e.dead) updateEnemy(e, edt);
 
   // --- novas (shockwaves): damage once per enemy, erase enemy bullets
   for (const n of S.novas) {
@@ -996,8 +1017,8 @@ function gameUpdate(dt) {
   // --- enemy bullets
   for (const b of S.ebullets) {
     if (b.dead) continue;
-    b.x += b.vx * dt;
-    b.y += b.vy * dt;
+    b.x += b.vx * edt;
+    b.y += b.vy * edt;
     if (b.y < -20 || b.y > H + 20 || b.x < -20 || b.x > W + 20) { b.dead = true; continue; }
     const dx = b.x - p.x, dy = b.y - p.y, d2 = dx * dx + dy * dy;
     if (d2 < (CFG.player.hitRadius + b.r * 0.6) ** 2 && p.invuln <= 0) {
@@ -1087,7 +1108,7 @@ function updateBullets(dt) {
 }
 
 function update(dt) {
-  updateStars(S && S.state === 'play' ? dt * 1.6 : dt * 0.6);
+  artUpdate(S && S.state === 'play' ? dt * 1.6 : dt * 0.6);
   if (!S) return;
   if (S.flash && (S.flash.t -= dt) <= 0) S.flash = null;
   if (S.armed && (S.armed.t -= dt) <= 0) S.armed = null;
@@ -1096,600 +1117,6 @@ function update(dt) {
     S.uiLock -= dt;
     if (S.state === 'over') { S.shake = Math.max(0, S.shake - dt); updateParticles(dt); }
   }
-}
-
-// ============================================================================
-// Drawing
-// ============================================================================
-function path(points) {
-  ctx.beginPath();
-  ctx.moveTo(points[0], points[1]);
-  for (let i = 2; i < points.length; i += 2) ctx.lineTo(points[i], points[i + 1]);
-  ctx.closePath();
-}
-
-function drawShip(x, y, scale, ship, locked) {
-  ship = ship || SHIPS.vesper;
-  ctx.save();
-  ctx.translate(x, y);
-  ctx.scale(scale, scale);
-  path(ship.shape);
-  ctx.fillStyle = locked ? '#08070f' : '#0b1a33'; ctx.fill();
-  ctx.lineWidth = 1.5; ctx.strokeStyle = locked ? '#ffffff30' : ship.color; ctx.stroke();
-  if (!locked) {
-    ctx.fillStyle = '#e8fbff';
-    ctx.beginPath(); ctx.ellipse(0, -4, 2.2, 4, 0, 0, TAU); ctx.fill();
-  }
-  ctx.restore();
-}
-
-function drawPlayer() {
-  const p = S.p;
-  const blink = p.invuln > 0 && Math.floor(p.invuln * 16) % 2 === 0;
-  ctx.globalCompositeOperation = 'lighter';
-  glow(p.x, p.y + 12, 12, COL.flame, 0.8);
-  glow(p.x, p.y, 26, S.ship.color, 0.25);
-  ctx.globalCompositeOperation = 'source-over';
-  const f = rand(6, 12);
-  ctx.fillStyle = '#ffb3f3';
-  path([p.x - 3.5, p.y + 9, p.x + 3.5, p.y + 9, p.x, p.y + 9 + f]);
-  ctx.fill();
-  if (!blink) drawShip(p.x, p.y, 1, S.ship);
-  for (const id in S.weapons) if (WEAPONS[id].draw) WEAPONS[id].draw(S.weapons[id]);
-  // hitbox dot: this is the only part that can be hit
-  ctx.fillStyle = '#ffffff';
-  ctx.beginPath(); ctx.arc(p.x, p.y, CFG.player.hitRadius - 1, 0, TAU); ctx.fill();
-  ctx.strokeStyle = COL.flame; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.arc(p.x, p.y, CFG.player.hitRadius + 0.5, 0, TAU); ctx.stroke();
-  // Deflector Shield: full ring when ready, a filling arc while it recharges
-  if (p.bubble) {
-    ctx.strokeStyle = '#6bd6ff'; ctx.lineWidth = 2; ctx.globalAlpha = 0.55 + 0.2 * Math.sin(S.t * 5);
-    ctx.beginPath(); ctx.arc(p.x, p.y, 19, 0, TAU); ctx.stroke();
-    ctx.globalAlpha = 1;
-  } else if (ML('deflector')) {
-    const f = clamp(1 - p.bubbleT / shieldRecharge(), 0, 1);
-    ctx.strokeStyle = '#6bd6ff'; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.3;
-    ctx.beginPath(); ctx.arc(p.x, p.y, 19, UP, UP + TAU * f); ctx.stroke();
-    ctx.globalAlpha = 1;
-  }
-}
-
-function drawEnemy(e) {
-  const c = e.flash > 0 ? '#ffffff' : e.color;
-  ctx.globalCompositeOperation = 'lighter';
-  glow(e.x, e.y, e.r * 2.2, e.color, 0.3);
-  ctx.globalCompositeOperation = 'source-over';
-  ctx.save();
-  ctx.translate(e.x, e.y);
-  ctx.lineWidth = 1.5;
-  ctx.strokeStyle = c;
-  ctx.fillStyle = e.flash > 0 ? '#ffffff' : '#1a0716';
-  switch (e.type) {
-    case 'drone':
-      path([0, 12, 12, -6, 5, -2, 0, -10, -5, -2, -12, -6]); break;
-    case 'weaver':
-      path([0, 11, 6, 0, 13, -4, 6, -6, 0, -11, -6, -6, -13, -4, -6, 0]); break;
-    case 'diver':
-      if (e.mode === 1 && Math.floor(e.wait * 12) % 2) ctx.strokeStyle = '#ffffff';
-      ctx.rotate(e.mode === 2 ? Math.atan2(e.vy, e.vx) - Math.PI / 2 : 0);
-      path([0, 14, 7, -4, 3, -12, -3, -12, -7, -4]); break;
-    case 'gunner': {
-      const pts = [];
-      for (let i = 0; i < 6; i++) { const a = i / 6 * TAU + Math.PI / 6; pts.push(Math.cos(a) * 20, Math.sin(a) * 20); }
-      path(pts);
-      break;
-    }
-    case 'boss':
-      ctx.lineWidth = 2.5;
-      path([0, 42, 16, 22, 44, 14, 38, -8, 18, -4, 12, -26, -12, -26, -18, -4, -38, -8, -44, 14, -16, 22]);
-      break;
-  }
-  ctx.fill();
-  ctx.stroke();
-  if (e.type === 'gunner') {
-    ctx.fillStyle = c;
-    ctx.beginPath(); ctx.arc(0, 0, 5, 0, TAU); ctx.fill();
-    ctx.fillStyle = '#ffffff22'; ctx.fillRect(-18, -28, 36, 3);
-    ctx.fillStyle = e.color; ctx.fillRect(-18, -28, 36 * Math.max(0, e.hp / e.maxHp), 3);
-  } else if (e.type === 'boss') {
-    ctx.strokeStyle = c; ctx.lineWidth = 1.5;
-    path([0, 30, 10, 14, 0, -10, -10, 14]); ctx.stroke();
-    ctx.globalCompositeOperation = 'lighter';
-    glow(0, 6, 22 + 4 * Math.sin(e.age * 6), e.color, 0.9);
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath(); ctx.arc(0, 6, 4, 0, TAU); ctx.fill();
-  } else {
-    ctx.fillStyle = c;
-    ctx.fillRect(-1.5, -2, 3, 3);
-  }
-  ctx.restore();
-}
-
-function drawWorld() {
-  // XP crystals
-  ctx.globalCompositeOperation = 'lighter';
-  for (const o of S.orbs) {
-    const s = o.v >= 5 ? 6 : 3.5, pulse = 0.7 + 0.3 * Math.sin(o.age * 8);
-    glow(o.x, o.y, s * 3, COL.xp, 0.5 * pulse);
-  }
-  ctx.globalCompositeOperation = 'source-over';
-  ctx.fillStyle = COL.xp;
-  for (const o of S.orbs) {
-    const s = o.v >= 5 ? 6 : 3.5;
-    path([o.x, o.y - s, o.x + s * 0.7, o.y, o.x, o.y + s, o.x - s * 0.7, o.y]);
-    ctx.fill();
-  }
-
-  for (const e of S.enemies) drawEnemy(e);
-
-  // Player projectiles
-  ctx.globalCompositeOperation = 'lighter';
-  ctx.lineCap = 'round';
-  for (const b of S.bullets) {
-    switch (b.kind) {
-      case 'rocket':
-        glow(b.x, b.y, 10, b.color, 0.8);
-        ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(Math.atan2(b.vy, b.vx));
-        ctx.fillStyle = '#ffe0c8'; ctx.fillRect(-5, -1.5, 9, 3);
-        ctx.restore();
-        break;
-      case 'rail':
-        glow(b.x, b.y + 20, 22, b.color, 0.7);
-        ctx.strokeStyle = b.color; ctx.lineWidth = 7; ctx.globalAlpha = 0.5;
-        ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x, b.y + 90); ctx.stroke();
-        ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2.5; ctx.globalAlpha = 1;
-        ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x, b.y + 90); ctx.stroke();
-        break;
-      case 'flak':
-        glow(b.x, b.y, 12, b.color, 0.8);
-        ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(b.x, b.y, 3, 0, TAU); ctx.fill();
-        break;
-      case 'disc':
-        glow(b.x, b.y, b.r * 2.4, b.color, 0.6);
-        ctx.strokeStyle = b.color; ctx.lineWidth = 2.5;
-        ctx.beginPath(); ctx.arc(b.x, b.y, b.r, b.spin, b.spin + Math.PI * 1.4); ctx.stroke();
-        ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(b.x, b.y, b.r * 0.35, 0, TAU); ctx.fill();
-        break;
-      case 'wave':
-        ctx.strokeStyle = b.color; ctx.lineWidth = 9; ctx.globalAlpha = 0.35;
-        ctx.beginPath(); ctx.moveTo(b.x - b.hw, b.y + 10); ctx.quadraticCurveTo(b.x, b.y - 14, b.x + b.hw, b.y + 10); ctx.stroke();
-        ctx.strokeStyle = '#e0ecff'; ctx.lineWidth = 2.5; ctx.globalAlpha = 1;
-        ctx.beginPath(); ctx.moveTo(b.x - b.hw, b.y + 10); ctx.quadraticCurveTo(b.x, b.y - 14, b.x + b.hw, b.y + 10); ctx.stroke();
-        break;
-      default: {
-        glow(b.x, b.y, 7, b.color, 0.6);
-        const sp = Math.hypot(b.vx, b.vy) || 1, len = b.r > 2.6 ? 9 : 6;
-        ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2.4;
-        ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x - b.vx / sp * len, b.y - b.vy / sp * len); ctx.stroke();
-      }
-    }
-  }
-  // Laser beam
-  if (S.laser) {
-    const x = S.p.x, w = S.laser.w, bot = S.p.y - 14;
-    ctx.globalAlpha = 0.35 + Math.random() * 0.15;
-    ctx.fillStyle = S.laser.color;
-    ctx.fillRect(x - w, 0, w * 2, bot);
-    ctx.globalAlpha = 0.9;
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(x - w * 0.25, 0, w * 0.5, bot);
-    ctx.globalAlpha = 1;
-    glow(x, bot, w * 2, S.laser.color, 0.9);
-  }
-  // Lightning
-  for (const z of S.zaps) {
-    ctx.globalAlpha = 1 - z.age / 0.18;
-    ctx.strokeStyle = z.color; ctx.lineWidth = 2.5;
-    ctx.beginPath(); ctx.moveTo(z.x1, z.y1);
-    for (let k = 1; k < 5; k++) {
-      const t = k / 5;
-      ctx.lineTo(lerp(z.x1, z.x2, t) + rand(-8, 8), lerp(z.y1, z.y2, t) + rand(-8, 8));
-    }
-    ctx.lineTo(z.x2, z.y2); ctx.stroke();
-    glow(z.x2, z.y2, 14, z.color, 0.8);
-  }
-  // Novas
-  for (const n of S.novas) {
-    const life = n.small ? 0.3 : 0.55;
-    ctx.globalAlpha = Math.max(0, 1 - n.age / life);
-    ctx.strokeStyle = n.color;
-    ctx.lineWidth = n.small ? 2 : 4;
-    ctx.beginPath(); ctx.arc(n.x, n.y, n.r, 0, TAU); ctx.stroke();
-  }
-  // Particles
-  for (const q of S.parts) {
-    ctx.globalAlpha = 1 - q.age / q.life;
-    ctx.fillStyle = q.color;
-    ctx.fillRect(q.x - q.size / 2, q.y - q.size / 2, q.size, q.size);
-  }
-  ctx.globalAlpha = 1;
-  ctx.globalCompositeOperation = 'source-over';
-
-  if (S.state !== 'over' && S.state !== 'title' && S.state !== 'hangar') drawPlayer();
-  if (S.state === 'title') drawShip(W / 2, H * 0.52 + Math.sin(performance.now() / 500) * 4, 1.6, curShip());
-
-  // Enemy bullets last, so they're never hidden behind anything
-  for (const b of S.ebullets) ctx.drawImage(eShotSprite, b.x - 12, b.y - 12, 24, 24);
-
-  // Floating text
-  for (const t of S.texts) {
-    ctx.globalAlpha = Math.min(1, 2 * (1.2 - t.age));
-    smallText(t.txt, t.x, t.y, t.size, t.color, 800);
-  }
-  ctx.globalAlpha = 1;
-}
-
-function fmtTime(t) {
-  const m = Math.floor(t / 60), s = Math.floor(t % 60);
-  return `${m}:${s < 10 ? '0' : ''}${s}`;
-}
-
-const PAUSE_BTN = { x: W - 44, y: 8, w: 40, h: 40 };
-
-function drawSlot(x, y, def, lvl, max, builtin) {
-  const s = 22;
-  roundRect(x, y, s, s, 4);
-  if (def) {
-    const tc = TIER[def.tier].color;
-    ctx.fillStyle = builtin ? tc + '30' : '#0e0a24cc'; ctx.fill();
-    ctx.strokeStyle = tc; ctx.lineWidth = builtin ? 2 : 1.2; ctx.stroke();
-    ctx.font = '700 13px system-ui, sans-serif';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillStyle = def.color;
-    ctx.fillText(def.glyph, x + s / 2, y + s / 2 + 1);
-    ctx.font = `800 8px ${FONT}`;
-    ctx.fillStyle = lvl >= max ? COL.gold : COL.text;
-    ctx.textAlign = 'right';
-    ctx.fillText(lvl >= max ? 'M' : String(lvl), x + s + 2, y + s - 1);
-  } else {
-    ctx.setLineDash([3, 3]);
-    ctx.strokeStyle = '#ffffff33'; ctx.lineWidth = 1; ctx.stroke();
-    ctx.setLineDash([]);
-  }
-}
-
-function drawHud() {
-  const p = S.p;
-  // XP bar across the very top
-  const need = xpNeed(S.level);
-  ctx.fillStyle = '#ffffff14';
-  ctx.fillRect(0, 0, W, 6);
-  ctx.fillStyle = COL.xp;
-  ctx.fillRect(0, 0, W * clamp(S.xp / need, 0, 1), 6);
-
-  ctx.textBaseline = 'middle';
-  ctx.font = `700 13px ${FONT}`;
-  ctx.fillStyle = COL.text;
-  ctx.textAlign = 'left';
-  ctx.fillText(`LV ${S.level}`, 8, 22);
-  ctx.textAlign = 'center';
-  ctx.fillText(fmtTime(S.t), W / 2, 22);
-  ctx.textAlign = 'right';
-  ctx.font = `800 12px ${FONT}`;
-  ctx.fillStyle = COL.gold;
-  ctx.fillText(`${Math.floor(S.credits)} CR`, W - 48, 22);
-  ctx.font = `500 10px ${FONT}`;
-  ctx.fillStyle = COL.dim;
-  ctx.textAlign = 'center';
-  ctx.fillText(`${S.kills} KILLS`, W / 2, 38);
-
-  // hull pips, top right under the credits
-  for (let i = 0; i < p.maxHp; i++) {
-    const x = W - 14 - (p.maxHp - 1 - i) * 12, y = 40;
-    path([x, y - 5, x + 5, y, x, y + 5, x - 5, y]);
-    if (i < p.hp) { ctx.fillStyle = COL.player; ctx.fill(); }
-    else { ctx.strokeStyle = '#3df5ff55'; ctx.lineWidth = 1; ctx.stroke(); }
-  }
-
-  // Loadout: ship's signature weapon (bold), then 4 weapon slots; 4 passive slots below
-  const sig = S.ship.weapon, wIds = slotWeapons(), pIds = Object.keys(S.passives);
-  drawSlot(8, 36, WEAPONS[sig], S.weapons[sig].lvl, CFG.maxLevel, true);
-  for (let i = 0; i < CFG.slots.weapons; i++) {
-    const id = wIds[i];
-    drawSlot(40 + i * 27, 36, id && WEAPONS[id], id && S.weapons[id].lvl, CFG.maxLevel);
-  }
-  for (let i = 0; i < CFG.slots.passives; i++) {
-    const id = pIds[i];
-    drawSlot(40 + i * 27, 63, id && PASSIVES[id], id && S.passives[id].lvl, id && passiveMax(id));
-  }
-
-  // pause button
-  if (S.state === 'play') {
-    ctx.fillStyle = '#ffffff99';
-    ctx.fillRect(PAUSE_BTN.x + 13, PAUSE_BTN.y + 10, 5, 16);
-    ctx.fillRect(PAUSE_BTN.x + 23, PAUSE_BTN.y + 10, 5, 16);
-  }
-
-  // Boss warning + health bar
-  if (S.warn > 0 && Math.floor(S.warn * 4) % 2 === 0) {
-    neonText('WARNING', W / 2, H * 0.36, 30, '#ff2d6f');
-    smallText('CAPITAL SHIP INBOUND', W / 2, H * 0.36 + 30, 12, COL.text, 700);
-  }
-  const boss = S.enemies.find(e => e.type === 'boss' && !e.dead);
-  if (boss) {
-    const y = H - 16;
-    smallText('CAPITAL SHIP', W / 2, y - 10, 9, '#ff8fb0', 800);
-    ctx.fillStyle = '#ffffff1a'; ctx.fillRect(20, y, W - 40, 5);
-    ctx.fillStyle = '#ff2d6f'; ctx.fillRect(20, y, (W - 40) * Math.max(0, boss.hp / boss.maxHp), 5);
-  }
-}
-
-function neonText(text, x, y, size, color, weight) {
-  ctx.font = `${weight || 900} ${size}px ${FONT}`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.shadowColor = color;
-  ctx.shadowBlur = size * 0.6;
-  ctx.fillStyle = color;
-  ctx.fillText(text, x, y);
-  ctx.shadowBlur = 0;
-  ctx.fillStyle = '#ffffff';
-  const a = ctx.globalAlpha;
-  ctx.globalAlpha = a * 0.85;
-  ctx.fillText(text, x, y);
-  ctx.globalAlpha = a;
-}
-
-function smallText(text, x, y, size, color, weight) {
-  ctx.font = `${weight || 500} ${size}px ${FONT}`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillStyle = color;
-  ctx.fillText(text, x, y);
-}
-
-function wrapLines(text, maxW) {
-  const words = text.split(' '), lines = [];
-  let line = '';
-  for (const w of words) {
-    const test = line ? line + ' ' + w : w;
-    if (ctx.measureText(test).width > maxW && line) { lines.push(line); line = w; }
-    else line = test;
-  }
-  if (line) lines.push(line);
-  return lines;
-}
-
-function dim(a) { ctx.fillStyle = `rgba(5,3,15,${a})`; ctx.fillRect(0, 0, W, H); }
-
-function roundRect(x, y, w, h, r) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
-  ctx.closePath();
-}
-
-// --- Tap targets: menus register buttons while drawing; taps are matched to them.
-let uiButtons = [];
-function addButton(id, rect, action, enabled) { uiButtons.push({ id, rect, action, enabled: enabled !== false }); }
-function drawButton(id, x, y, w, h, label, color, action, enabled) {
-  const on = enabled !== false, pressed = S.uiPress === id && on;
-  roundRect(x, y, w, h, 10);
-  ctx.fillStyle = pressed ? color + '55' : on ? color + '1f' : '#ffffff08';
-  ctx.fill();
-  ctx.lineWidth = pressed ? 2.5 : 1.5;
-  ctx.strokeStyle = on ? color : '#ffffff33';
-  ctx.stroke();
-  smallText(label, x + w / 2, y + h / 2 + 1, 14, on ? COL.text : COL.dim, 800);
-  addButton(id, { x, y, w, h }, action, on);
-}
-
-function drawLevelUp() {
-  dim(0.8);
-  const n = S.choices.length, ch = 88, gap = 12, total = n * ch + (n - 1) * gap;
-  const y0 = Math.max(170, H * 0.5 - total / 2);
-  const titleY = y0 - 78;
-  neonText('LEVEL UP', W / 2, titleY, 34, COL.xp);
-  smallText(`LEVEL ${S.choiceLevel}: CHOOSE ONE`, W / 2, titleY + 32, 11, COL.text, 700);
-  smallText(`WEAPONS ${slotWeapons().length}/${CFG.slots.weapons}   ·   PASSIVES ${Object.keys(S.passives).length}/${CFG.slots.passives}`,
-            W / 2, titleY + 52, 9, COL.dim, 700);
-
-  S.choices.forEach((c, i) => {
-    const r = { x: 20, y: y0 + i * (ch + gap), w: W - 40, h: ch }, info = choiceInfo(c), pressed = S.uiPress === 'card' + i;
-    addButton('card' + i, r, () => choose(i));
-    roundRect(r.x, r.y, r.w, r.h, 10);
-    ctx.fillStyle = pressed ? info.color + '44' : '#0e0a24ee';
-    ctx.fill();
-    ctx.lineWidth = pressed ? 3 : 1.5;
-    ctx.strokeStyle = info.color;
-    ctx.stroke();
-    const ix = r.x + 38, iy = r.y + r.h / 2;
-    ctx.globalCompositeOperation = 'lighter';
-    glow(ix, iy, 34, info.color, 0.35);
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.strokeStyle = info.color; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.arc(ix, iy, 22, 0, TAU); ctx.stroke();
-    ctx.font = '700 22px system-ui, sans-serif';
-    ctx.fillStyle = info.icon || info.color; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(info.glyph, ix, iy + 1);
-    const tx = r.x + 74, tw = r.w - 86;
-    ctx.font = `800 8.5px ${FONT}`;
-    ctx.fillStyle = info.color;
-    if (info.tier) { ctx.textAlign = 'right'; ctx.fillText(info.tier, r.x + r.w - 12, r.y + 18); }
-    ctx.textAlign = 'left';
-    ctx.fillText(info.tag, tx, r.y + 18);
-    ctx.font = `800 14px ${FONT}`;
-    ctx.fillStyle = COL.text;
-    ctx.fillText(info.title, tx, r.y + 36);
-    ctx.font = '400 12px system-ui, sans-serif';
-    ctx.fillStyle = '#b8c2e0';
-    wrapLines(info.desc, tw).slice(0, 2).forEach((ln, k) => ctx.fillText(ln, tx, r.y + 56 + k * 15));
-  });
-  const by = y0 + total + 18;
-  if (ML('reroll') > 0) drawButton('reroll', W / 2 - 80, by, 160, 40, `REROLL (${S.rerolls})`, COL.gold, reroll, S.rerolls > 0);
-  if (S.uiLock > 0) dim(0.25);
-}
-
-function drawTitle() {
-  dim(0.35);
-  const cy = H * 0.22;
-  neonText('STARBURN', W / 2, cy, 44, '#ff4fd8');
-  smallText('SHOOT  ·  SALVAGE  ·  EVOLVE', W / 2, cy + 38, 11, COL.player, 700);
-  const lines = ['Drag anywhere to fly. You fire on your own.', 'Grab green crystals to level up.', 'Only the white dot can be hit.'];
-  lines.forEach((l, i) => smallText(l, W / 2, cy + 80 + i * 20, 12, COL.text, 400));
-  const sh = curShip(), wp = WEAPONS[sh.weapon];
-  smallText(sh.name, W / 2, H * 0.52 + 36, 14, sh.color, 800);
-  smallText(`${wp.name} · ${TIER[wp.tier].name}`, W / 2, H * 0.52 + 54, 10, TIER[wp.tier].color, 700);
-  const by = H * 0.7;
-  drawButton('launch', 40, by, W - 80, 54, 'LAUNCH', COL.xp, startGame);
-  drawButton('hangar', 40, by + 66, W - 80, 46, `HANGAR  ·  ${META.bank} CR`, COL.gold, openHangar);
-  if (META.best > 0) smallText(`BEST TIME  ${fmtTime(META.best)}`, W / 2, by + 136, 11, COL.dim, 700);
-}
-
-let hangarTab = 'ships';
-function openHangar() { newGame('hangar'); S.uiLock = 0.15; }
-
-// Purchases need two taps: the first arms it ("TAP AGAIN"), the second buys.
-function confirmBuy(id, fn) {
-  if (S.armed && S.armed.id === id) { S.armed = null; fn(); }
-  else { S.armed = { id, t: 2.5 }; buzz(10); }
-}
-const isArmed = id => S.armed && S.armed.id === id;
-
-function drawHangar() {
-  dim(0.5);
-  neonText('HANGAR', W / 2, 34, 28, COL.gold);
-  smallText(`${META.bank} CR`, W / 2, 62, 14, COL.gold, 800);
-  const tw = (W - 44) / 2;
-  drawTab('tabShips', 16, 80, tw, 34, 'SHIPS', 'ships');
-  drawTab('tabUps', 28 + tw, 80, tw, 34, 'UPGRADES', 'upgrades');
-  if (hangarTab === 'ships') drawShipGrid(126, H - 76);
-  else drawUpgradeList(126, H - 76);
-  drawButton('back', 16, H - 64, tw, 48, 'BACK', COL.player, () => { newGame('title'); });
-  drawButton('launch', 28 + tw, H - 64, tw, 48, 'LAUNCH', COL.xp, startGame);
-}
-
-function drawTab(id, x, y, w, h, label, tab) {
-  const on = hangarTab === tab;
-  roundRect(x, y, w, h, 8);
-  ctx.fillStyle = on ? COL.gold + '30' : '#0e0a24cc'; ctx.fill();
-  ctx.strokeStyle = on ? COL.gold : '#ffffff26'; ctx.lineWidth = on ? 2 : 1; ctx.stroke();
-  smallText(label, x + w / 2, y + h / 2 + 1, 12, on ? COL.text : COL.dim, 800);
-  addButton(id, { x, y, w, h }, () => { hangarTab = tab; S.armed = null; });
-}
-
-function drawShipGrid(top, bottom) {
-  const ids = Object.keys(SHIPS), cols = 3, gap = 8;
-  const cw = (W - 24 - gap * (cols - 1)) / cols;
-  const chh = clamp((bottom - top - gap * 3) / 4, 80, 130);
-  ids.forEach((id, i) => {
-    const ship = SHIPS[id], wp = WEAPONS[ship.weapon], tc = TIER[wp.tier].color;
-    const owned = !!META.ships[id], sel = META.ship === id, cost = shipCost(id), afford = META.bank >= cost;
-    const r = { x: 12 + (i % cols) * (cw + gap), y: top + Math.floor(i / cols) * (chh + gap), w: cw, h: chh };
-    const flash = S.flash && S.flash.id === id, cx = r.x + r.w / 2;
-    roundRect(r.x, r.y, r.w, r.h, 8);
-    ctx.fillStyle = flash ? tc + '55' : sel ? tc + '22' : S.uiPress === 's' + i ? '#ffffff14' : '#0e0a24dd';
-    ctx.fill();
-    ctx.strokeStyle = owned ? tc : tc + '55';
-    ctx.lineWidth = sel ? 3 : 1;
-    ctx.stroke();
-    if (owned) {
-      ctx.globalCompositeOperation = 'lighter';
-      glow(cx, r.y + chh * 0.32, 24, ship.color, sel ? 0.5 : 0.25);
-      ctx.globalCompositeOperation = 'source-over';
-    }
-    drawShip(cx, r.y + chh * 0.32, 1.15, ship, !owned);
-    smallText(ship.name, cx, r.y + chh * 0.62, 10.5, owned ? COL.text : COL.dim, 800);
-    smallText(wp.name, cx, r.y + chh * 0.75, 8.5, tc, 700);
-    let label, lc;
-    if (owned) { label = sel ? 'SELECTED' : 'OWNED'; lc = sel ? COL.xp : COL.dim; }
-    else if (isArmed(id)) { label = 'TAP AGAIN'; lc = Math.floor(performance.now() / 200) % 2 ? COL.gold : COL.text; }
-    else { label = `${cost} CR`; lc = afford ? COL.gold : '#a0607a'; }
-    smallText(label, cx, r.y + chh * 0.89, 9.5, lc, 800);
-    addButton('s' + i, r, () => {
-      if (owned) { META.ship = id; saveMeta(); S.armed = null; buzz(10); }
-      else if (!afford) buzz(20);
-      else confirmBuy(id, () => {
-        META.bank -= cost; META.ships[id] = true; META.ship = id; saveMeta();
-        S.flash = { id, t: 0.4 }; buzz(40);
-      });
-    });
-  });
-}
-
-function drawUpgradeList(top, bottom) {
-  const rowH = clamp((bottom - top) / HANGAR.length, 44, 62);
-  HANGAR.forEach((h, i) => {
-    const y = top + i * rowH, lv = ML(h.id), maxed = lv >= h.max, cost = hangarCost(h), afford = !maxed && META.bank >= cost;
-    const r = { x: 12, y: y + 2, w: W - 24, h: rowH - 6 };
-    const flash = S.flash && S.flash.id === h.id;
-    roundRect(r.x, r.y, r.w, r.h, 8);
-    ctx.fillStyle = flash ? COL.gold + '55' : S.uiPress === 'h' + i ? '#ffffff18' : '#0e0a24dd';
-    ctx.fill();
-    ctx.strokeStyle = afford ? COL.gold + 'aa' : '#ffffff22'; ctx.lineWidth = 1; ctx.stroke();
-    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-    ctx.font = `800 11.5px ${FONT}`; ctx.fillStyle = COL.text;
-    ctx.fillText(h.name, r.x + 10, r.y + r.h * 0.34);
-    ctx.font = '400 11px system-ui, sans-serif'; ctx.fillStyle = '#b8c2e0';
-    ctx.fillText(typeof h.desc === 'function' ? h.desc(lv) : h.desc, r.x + 10, r.y + r.h * 0.72);
-    const pipW = Math.min(7, 60 / h.max - 2);
-    for (let k = 0; k < h.max; k++) {
-      ctx.fillStyle = k < lv ? COL.gold : '#ffffff22';
-      ctx.fillRect(r.x + r.w - 80 - h.max * (pipW + 2) + k * (pipW + 2), r.y + r.h * 0.34 - 3, pipW, 6);
-    }
-    ctx.textAlign = 'right'; ctx.font = `800 12px ${FONT}`;
-    const armed = isArmed(h.id);
-    ctx.fillStyle = maxed ? COL.dim : armed ? (Math.floor(performance.now() / 200) % 2 ? COL.gold : COL.text) : afford ? COL.gold : '#a0607a';
-    ctx.fillText(maxed ? 'MAX' : armed ? 'TAP AGAIN' : `${cost} CR`, r.x + r.w - 10, r.y + r.h / 2 + 1);
-    addButton('h' + i, r, () => (afford ? confirmBuy(h.id, () => buyHangar(h)) : buzz(20)), !maxed);
-  });
-}
-
-function drawPaused() {
-  dim(0.7);
-  neonText('PAUSED', W / 2, H * 0.36, 36, COL.player);
-  drawButton('resume', 50, H * 0.48, W - 100, 52, 'RESUME', COL.xp, resume);
-  drawButton('quit', 50, H * 0.48 + 66, W - 100, 44, 'END RUN', COL.flame, () => gameOver(true));
-}
-function resume() { S.state = 'play'; input.dx = input.dy = 0; }
-
-function drawGameOver() {
-  dim(0.6);
-  const cy = H * 0.24;
-  neonText(S.quit ? 'RUN ENDED' : 'SHIP LOST', W / 2, cy, 36, COL.flame);
-  const rows = [
-    ['SURVIVED', fmtTime(S.t)],
-    ['LEVEL', String(S.level)],
-    ['KILLS', String(S.kills)],
-    ['BEST', fmtTime(META.best)],
-  ];
-  rows.forEach(([k, v], i) => {
-    const y = cy + 60 + i * 28;
-    ctx.font = `700 12px ${FONT}`; ctx.textBaseline = 'middle';
-    ctx.textAlign = 'left'; ctx.fillStyle = COL.dim; ctx.fillText(k, W / 2 - 100, y);
-    ctx.textAlign = 'right'; ctx.fillStyle = COL.text; ctx.fillText(v, W / 2 + 100, y);
-  });
-  const cyy = cy + 60 + 4 * 28 + 14;
-  neonText(`+${S.earned} CR`, W / 2, cyy, 26, COL.gold);
-  smallText(`BOUNTY COLLECTED  ·  BANK ${META.bank} CR`, W / 2, cyy + 26, 10, COL.text, 700);
-  if (S.newBest) smallText('NEW BEST TIME!', W / 2, cyy + 46, 12, COL.xp, 800);
-  const by = H * 0.72;
-  const on = S.uiLock <= 0;
-  drawButton('again', 40, by, W - 80, 54, 'FLY AGAIN', COL.xp, startGame, on);
-  drawButton('hangar', 40, by + 66, W - 80, 46, 'HANGAR', COL.gold, openHangar, on);
-}
-
-function render() {
-  uiButtons = [];
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.fillStyle = COL.bg;
-  ctx.fillRect(0, 0, cv.width, cv.height);
-  let sx = 0, sy = 0;
-  if (S && S.shake > 0) { sx = rand(-1, 1) * S.shake * 10; sy = rand(-1, 1) * S.shake * 10; }
-  ctx.setTransform(SCALE, 0, 0, SCALE, sx * SCALE, sy * SCALE);
-  drawStars();
-  if (!S) return;
-  drawWorld();
-  if (S.state !== 'title' && S.state !== 'hangar') drawHud();
-  if (S.state === 'title') drawTitle();
-  else if (S.state === 'hangar') drawHangar();
-  else if (S.state === 'levelup') drawLevelUp();
-  else if (S.state === 'paused') drawPaused();
-  else if (S.state === 'over') drawGameOver();
 }
 
 // ============================================================================
@@ -1708,6 +1135,9 @@ function buttonAt(pt) {
   return null;
 }
 
+function openHangar() { newGame('hangar'); S.uiLock = 0.15; }
+function resume() { S.state = 'play'; input.dx = input.dy = 0; }
+
 function startGame() {
   newGame('play');
   try { const el = document.documentElement; el.requestFullscreen && el.requestFullscreen().catch(() => {}); } catch (e) {}
@@ -1719,6 +1149,7 @@ window.addEventListener('pointerdown', e => {
   if (S.state === 'play') {
     if (inRect(pt, PAUSE_BTN)) { S.state = 'paused'; S.uiLock = 0.2; return; }
     input.id = e.pointerId; input.lx = e.clientX; input.ly = e.clientY;
+    input.downT = performance.now(); input.downX = e.clientX; input.downY = e.clientY;
   } else if (S.uiLock <= 0) {
     const b = buttonAt(pt);
     S.uiPress = b ? b.id : null;
@@ -1736,7 +1167,15 @@ window.addEventListener('pointermove', e => {
 }, { passive: false });
 
 window.addEventListener('pointerup', e => {
-  if (e.pointerId === input.id) input.id = null;
+  if (e.pointerId === input.id) {
+    input.id = null;
+    // A quick tap (short, barely moved). Two of them close together = ultimate.
+    const now = performance.now();
+    if (S && S.state === 'play' && now - input.downT < 250 && Math.hypot(e.clientX - input.downX, e.clientY - input.downY) < 20) {
+      if (now - (input.lastTap || 0) < 380) { activateUlt(); input.lastTap = 0; }
+      else input.lastTap = now;
+    }
+  }
   if (!S || S.state === 'play' || S.uiPress == null) return;
   const id = S.uiPress;
   S.uiPress = null;
@@ -1750,6 +1189,7 @@ window.addEventListener('keydown', e => {
   keys[k] = true;
   if (!S) return;
   if ((k === 'escape' || k === 'p') && (S.state === 'play' || S.state === 'paused')) { if (S.state === 'play') S.state = 'paused'; else resume(); }
+  if (k === 'e' && S.state === 'play') activateUlt();
   if (S.state === 'levelup' && S.uiLock <= 0) {
     if (['1', '2', '3'].includes(k)) choose(+k - 1);
     if (k === 'r') reroll();
@@ -1762,22 +1202,7 @@ window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; }
 document.addEventListener('visibilitychange', () => { if (document.hidden && S && S.state === 'play') S.state = 'paused'; });
 document.addEventListener('contextmenu', e => e.preventDefault());
 
-// ============================================================================
-// Boot
-// ============================================================================
-window.addEventListener('resize', resize);
-resize();
-newGame('title');
-let last = performance.now();
-function frame(now) {
-  let dt = (now - last) / 1000;
-  last = now;
-  if (dt > 0.05) dt = 0.05;   // after a hiccup, don't teleport everything
-  update(dt);
-  render();
-  requestAnimationFrame(frame);
-}
-requestAnimationFrame(frame);
-
 // Handy for testing from the browser console: STARBURN.S, STARBURN.giveXp(20)
-window.STARBURN = { get S() { return S; }, CFG, META, WEAPONS, PASSIVES, SHIPS, giveXp(n) { if (S) S.xp += n; }, choose, startGame, openHangar };
+window.STARBURN = { get S() { return S; }, CFG, META, WEAPONS, PASSIVES, SHIPS, ULTS, giveXp(n) { if (S) S.xp += n; },
+  choose, startGame, openHangar, activateUlt,
+  step(dt, n) { for (let i = 0; i < n; i++) update(dt); } };   // fast-forward for testing
