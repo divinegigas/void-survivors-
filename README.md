@@ -12,6 +12,22 @@ This is separate from Neon Cable 42. It lives in its own folder and its own bran
 - `www/index.html` + `www/game.css` are the page the Android app will load.
 - `artifact.html` is the same game wrapped for the shareable claude.ai link.
 
+## Install it on your Android phone
+Every time the game changes on this branch, GitHub builds the app by itself
+(see `.github/workflows/starburn-android.yml`).
+1. On your phone, open the repository on GitHub → **Releases** → **Starburn (latest build)**.
+2. Tap **starburn.apk** to download it, then open the download.
+3. The first time, Android asks to allow installs from your browser: allow it, then tap **Install**.
+4. Later builds install right over the old one and keep your credits and ships.
+
+## Android project
+- `capacitor.config.json` + `android/`: the Android wrapper (Capacitor 6). It shows `www/` full screen,
+  portrait only, keeps the screen awake and allows vibration.
+- `android/app/starburn-debug.keystore`: one fixed signing key so updates install over each other.
+  It's a debug key (password `android`), fine for your own phone, not for the Play Store.
+- `tools/make_icon.py` draws the app icon; `icon-512.png` is the large version.
+- Fonts are bundled in `www/fonts/` (SIL Open Font License) so the app works offline.
+
 ## Try it on a computer
 Open `www/index.html` in a browser. Arrow keys or WASD move, 1/2/3 pick an upgrade, E fires the ultimate, P pauses.
 
@@ -27,5 +43,5 @@ Open `www/index.html` in a browser. Arrow keys or WASD move, 1/2/3 pick an upgra
 4. **Ultimates + pop art** (done): Autocannon as a common card, level-10 ultimate choice
    (6 ultimates, double-tap to fire), comic-book cel-shaded look with halftone dots and POW! bursts.
 5. **Feel pass**: tune difficulty, sound effects and music, screen effects.
-6. **Real Android app**: wrap `www/` with Capacitor and build the APK on GitHub (no Android Studio needed).
+6. **Real Android app** (done): Capacitor wrapper, APK built by GitHub Actions and posted to Releases.
 7. **More content**: more bosses and enemy patterns, weapon evolutions.
