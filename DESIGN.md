@@ -187,20 +187,22 @@ stage clear** and on death or quit. A full five-stage run earns about 5,400 cred
   recharges, and slots grow by +1 of each kind.
 - **Clearing a stage** unlocks the next on the stage select screen. **Skipping ahead** starts a fresh
   loadout with a **head start of 8 level-ups per skipped stage**.
-- **Each stage lasts 8:00:**
-  - Mini-bosses arrive at **2:00, 4:00 and 6:00**, each with a 3s WARNING.
-  - At **8:00** the clock stops, the regular swarm stops, and the **final boss** arrives.
+- **Each stage lasts 7:00:**
+  - Mini-bosses arrive at **1:45, 3:30 and 5:15**, each with a 3s WARNING.
+  - At **7:00** the clock stops, the regular swarm stops, and the **final boss** arrives.
   - Killing the final boss kills the remaining swarm and clears the stage.
-- **The enemy swarm** comes in timed waves: a gap of 1.6s shrinking to 0.5s over the first 320s
-  (×2.5 while a boss is alive). Enemy health grows 35% per minute, and enemy bullet speed rises up
-  to 1.7× by 8:00.
+- **The enemy swarm** comes in timed waves: a gap of 1.6s shrinking to 0.5s over the first 280s
+  (×2.5 while a boss is alive). Enemy health grows 45% (of its starting value) per minute, and enemy
+  bullet speed rises up to 1.7× by 7:00.
 
 **Difficulty per stage** (k = stage − 1):
 - Enemy health +50%·k, and health also grows 20%·k faster during the stage.
-- Mini-boss and final-boss health +100%·k (boss health × `bossHpMul 0.5` overall).
+- Mini-boss and final-boss health +100%·k (boss health × `bossHpMul 1.0` overall).
+- Final bosses are 1.3× bigger (hitbox and drawing, `finalBossSize`) and every final boss has **3 phases**,
+  changing at 66% and 33% health, each angrier than the last.
 - Bullets +7%·k faster, waves 10%·k closer together, enemies fire 15%·k more often.
 
-| # | Stage | Look | Mini-bosses (2:00 / 4:00 / 6:00) | Final boss | Music |
+| # | Stage | Look | Mini-bosses (1:45 / 3:30 / 5:15) | Final boss | Music |
 |---|---|---|---|---|---|
 | 1 | **Hive Fleet** | Indigo halftone sky, sparkles, speed lines | Brood Brute · Spore Mother · Scythe Wraith | **Hive Queen** | "Hive Surf": surf rock + 90s shooter metal + a dash of dubstep, 168 BPM |
 | 2 | **Warp Zone** | Black warp tunnel, cyan/magenta streaks | Phase Brute · Flux Mother · Rift Wraith | **Warp Wyrm** | "Warp Rider": speed metal + reverb-drenched electro bass, 186 BPM |
@@ -208,7 +210,16 @@ stage clear** and on death or quit. A full five-stage run earns about 5,400 cred
 | 4 | **Inside the Leviathan** | Flesh walls, veins, blood cells, heartbeat pulse | Bile Tick · Polyp Mother · Marrow Wraith | **Leviathan Heart** | "Heart of the Beast": doom metal crushed into glitch hop, 100 BPM |
 | 5 | **Prismatic Void** | Rainbow halftone, prism shards | Prism Brute · Halo Mother · Mirror Wraith | **Seraph of the Void** | "Seraph": a slow, majestic intro (72 BPM), then a fast JRPG final battle (160 BPM) |
 
-Each stage also recolours the regular swarm and changes the wave mix (for example, The Deep has more lamprey eels).
+Each stage has **its own regular enemies** and wave mix. They fill the same four roles as the stage 1 bugs
+(how they move and shoot), each with a twist (`FOE` and `STAGES[n].foes` in game.js):
+
+| Stage | Drone role | Weaver role | Diver role | Gunner role |
+|---|---|---|---|---|
+| 1 | Larva | Lamprey | Flayer | Bloater (ring) |
+| 2 | Blink Mite: falls faster, warps sideways once, then fires | Phase Eel: sharp zig-zags | Warp Streak: aims faster (0.45s), dives at 470 | Prism Node: rotating 8-shot crosses every 1.3s |
+| 3 | Drift Jelly: slower, bobs, spits a wobbling bubble | Gulper Eel: wide slow swim, bubble shots | Bone Piranha: dives, then re-aims and dives again | Spine Urchin: slow rings of big wobbling bubbles |
+| 4 | Blood Fluke: drifts toward you | Tapeworm: long, also spits sideways | Leech: its dive homes in for 1.3s | Polyp: aimed 7-shot fans, a ring every other volley |
+| 5 | Eye Shard: spins, 3-way shots | Halo Chain: loops as it falls, aimed shots | Mirror Blade: fires a 5-shot fan as it dives | Hollow Cherub: alternating wide and tight aimed fans |
 
 ---
 

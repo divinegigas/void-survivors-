@@ -588,7 +588,7 @@ const CREATURE = {
     const segs = 5, gap = 0.09;
     for (let k = segs - 1; k >= 1; k--) {
       const tt = e.age - k * gap;
-      const wx = (e.bx !== undefined ? e.bx + Math.sin(tt * 2.4 + e.ph) * e.amp : e.x) - e.x;
+      const wx = weaverX(e, tt) - e.x;
       const wy = -k * gap * (e.vy || 110), rr = e.r * (0.8 - k * 0.1);
       oval(wx, wy, rr, rr * 0.88, 0, k % 2 ? e.color : tone(e.color, -0.22), f, 2);
       veins([[wx - rr * 0.6, wy - rr * 0.2, wx, wy + rr * 0.5, wx + rr * 0.5, wy - rr * 0.1]]);
@@ -795,7 +795,7 @@ Object.assign(CREATURE, {
 
   seraph(e, f) {                      // SERAPH OF THE VOID: six wings, a weeping mask, a halo of spikes
     const t = e.age, ph = e.phase || 1;
-    ctx.scale(e.r / 58 * 1.3, e.r / 58 * 1.3);          // drawn grander than her hitbox
+    ctx.scale(e.r / 58 * 1.1, e.r / 58 * 1.1);          // drawn grander than her hitbox
     if (!OUTLINE) {                                  // prismatic rays behind
       ctx.save(); ctx.rotate(t * 0.3);
       for (let k = 0; k < 12; k++) {
@@ -839,8 +839,247 @@ Object.assign(CREATURE, {
   },
 });
 
+// ---- each stage's own small enemies (same four roles, new creatures) -------
+function diverPose(e, f) {                 // divers flash while aiming, then point along their dive
+  if (e.mode === 1 && Math.floor(e.wait * 12) % 2) f = true;
+  if (e.mode === 2) ctx.rotate(Math.atan2(e.vy, e.vx) - Math.PI / 2);
+  return f;
+}
+function weaverSegs(e, n, gap, each) {     // draws a worm's trailing body along its own swim path
+  for (let k = n - 1; k >= 1; k--) {
+    const tt = e.age - k * gap;
+    each(weaverX(e, tt) - e.x, -k * gap * (e.vy || 110), k);
+  }
+}
+function glow(x, y, r, color, a) {
+  if (OUTLINE) return;
+  ctx.globalAlpha = a; ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill(); ctx.globalAlpha = 1;
+}
+function spikes(n, r0, r1, rot, color, f, w) {     // a crown of bone or crystal spikes
+  for (let i = 0; i < n; i++) {
+    const a = rot + (i / n) * TAU, c = Math.cos(a), sn = Math.sin(a), h = w || 3;
+    flat(() => path([c * r0 - sn * h, sn * r0 + c * h, c * r1, sn * r1, c * r0 + sn * h, sn * r0 - c * h]), f ? PAPER : color, 1.3);
+  }
+}
+
+Object.assign(CREATURE, {
+  // STAGE 2 · WARP ZONE ------------------------------------------------------
+  blinker(e, f) {                     // BLINK MITE: a crystal tick that flickers out of phase
+    const t = e.age; ctx.scale(e.r / 14, e.r / 14);
+    if (!OUTLINE) {                                  // chromatic ghost copies
+      ctx.globalAlpha = 0.35;
+      for (const [dx, c] of [[-3, '#ff5df0'], [3, '#7de0ff']]) { ctx.fillStyle = c; path([dx, -12, dx + 10, 0, dx, 12, dx - 10, 0]); ctx.fill(); }
+      ctx.globalAlpha = 1;
+    }
+    cel([0, -12, 10, 0, 0, 12, -10, 0], e.color, 12, f, 2.2);
+    flat(() => path([-6, -4, 0, -9, 6, -4, 0, 2]), f ? PAPER : tone(e.color, 0.4), 1.2);
+    glow(0, 0, 15, e.color, 0.15 + 0.15 * Math.sin(t * 20));
+    eyeball(0, 4, 3, '#ff5df0', t);
+  },
+
+  phaseel(e, f) {                     // PHASE EEL: a chain of glowing diamonds with fin blades
+    const r = e.r;
+    weaverSegs(e, 6, 0.08, (x, y, k) => {
+      const rr = r * (0.75 - k * 0.08);
+      cel([x, y - rr, x + rr * 0.8, y, x, y + rr, x - rr * 0.8, y], k % 2 ? e.color : tone(e.color, -0.25), rr, f, 1.8);
+      glow(x, y, rr * 0.3, '#7de0ff', 0.9);
+    });
+    for (const sd of [-1, 1]) flat(() => path([sd * r * 0.5, -r * 0.4, sd * r * 1.3, -r * 0.9, sd * r * 0.7, r * 0.2]), f ? PAPER : '#7de0ff', 1.4);
+    cel([0, -r, r * 0.8, 0, 0, r * 1.1, -r * 0.8, 0], tone(e.color, 0.1), r, f, 2.2);
+    maw(0, r * 0.35, r * 0.38, r * 0.28, 7, 0.6 + 0.4 * Math.sin(e.age * 9));
+    eyeball(-r * 0.35, -r * 0.25, 1.8, '#7de0ff', e.age); eyeball(r * 0.35, -r * 0.25, 1.8, '#7de0ff', e.age);
+  },
+
+  streak(e, f) {                      // WARP STREAK: an arrowhead with swept fins and a light trail
+    f = diverPose(e, f); ctx.scale(e.r / 14, e.r / 14);
+    if (!OUTLINE && e.mode === 2) { ctx.globalAlpha = 0.4; ctx.fillStyle = e.color; path([-5, -6, 5, -6, 0, -40]); ctx.fill(); ctx.globalAlpha = 1; }
+    for (const sd of [-1, 1]) cel([sd * 3, -4, sd * 16, -14, sd * 6, 6], tone(e.color, -0.3), 10, f, 1.8);
+    cel([0, 20, 7, 2, 4, -12, -4, -12, -7, 2], e.color, 14, f, 2.2);
+    flat(() => path([-2, 4, 2, 4, 0, 16]), f ? PAPER : '#fff2fb', 1);
+    eyeball(0, -3, 3.2, '#7de0ff', e.age);
+  },
+
+  prism(e, f) {                       // PRISM NODE: a spinning crystal with a single slit eye
+    const t = e.age; ctx.scale(e.r / 24, e.r / 24);
+    spikes(4, 14, 26, t * 1.5 + (e.volley || 0) * 0.21, '#c8e4ff', f, 4);
+    ctx.save(); ctx.rotate(t * 0.8);
+    cel([0, -22, 19, -8, 19, 10, 0, 22, -19, 10, -19, -8], e.color, 22, f, 2.6);
+    if (!OUTLINE) { ctx.strokeStyle = tone(e.color, 0.45); ctx.lineWidth = 1.4; ctx.beginPath(); ctx.moveTo(0, -22); ctx.lineTo(0, 22); ctx.moveTo(-19, -8); ctx.lineTo(19, 10); ctx.moveTo(19, -8); ctx.lineTo(-19, 10); ctx.stroke(); }
+    ctx.restore();
+    const open = e.mode === 1 && e.fireT < 0.4 ? 1 : 0.4;
+    oval(0, 0, 9, 9 * open + 1, 0, '#f6edd2', f, 2);
+    eyeball(0, 0, 5 * (0.6 + open * 0.4), '#ff5df0', t);
+  },
+
+  // STAGE 3 · THE DEEP -------------------------------------------------------
+  jelly(e, f) {                       // DRIFT JELLY: a glowing bell trailing stinging threads
+    const t = e.age; ctx.scale(e.r / 14, e.r / 14);
+    for (let i = 0; i < 5; i++) tendril((i - 2) * 3.5, 4, (i - 2) * 4, 24 + (i % 2) * 5, Math.sin(t * 3 + i) * 4, tone(e.color, 0.3), 1.6);
+    const sq = 1 + 0.08 * Math.sin(t * 4);
+    ctx.save(); ctx.scale(sq, 1 / sq);
+    celBuild(() => { ctx.beginPath(); ctx.moveTo(-12, 4); ctx.quadraticCurveTo(-13, -14, 0, -14); ctx.quadraticCurveTo(13, -14, 12, 4);
+      for (let x = 12; x > -12; x -= 6) ctx.quadraticCurveTo(x - 1.5, 8, x - 3, 4), ctx.quadraticCurveTo(x - 4.5, 8, x - 6, 4); ctx.closePath(); }, e.color, 13, f, 2);
+    ctx.restore();
+    glow(0, -5, 6, '#e8fff8', 0.5 + 0.3 * Math.sin(t * 5));
+    eyeball(-4, -4, 1.8, '#ff7ab0', t); eyeball(4, -5, 1.5, '#ff7ab0', t);
+  },
+
+  eel(e, f) {                         // GULPER EEL: a thin dark body and a huge hinged jaw
+    const r = e.r;
+    weaverSegs(e, 7, 0.08, (x, y, k) => {
+      const rr = r * (0.62 - k * 0.06);
+      oval(x, y, rr, rr * 1.1, 0, k % 2 ? e.color : tone(e.color, -0.3), f, 1.8);
+      glow(x, y + rr * 0.2, 1.4, '#8affff', 0.8);
+    });
+    const open = 0.5 + 0.5 * Math.abs(Math.sin(e.age * 3));
+    oval(0, -r * 0.2, r * 0.8, r * 0.7, 0, tone(e.color, 0.1), f, 2.2);
+    if (!OUTLINE) {
+      ctx.fillStyle = MAW; ctx.beginPath(); ctx.ellipse(0, r * 0.4, r * 0.75, r * 0.3 + open * r * 0.4, 0, 0, TAU); ctx.fill();
+      ctx.fillStyle = BONE; ctx.beginPath();
+      for (let x = -r * 0.6; x <= r * 0.6; x += r * 0.3) { ctx.moveTo(x - 1.5, r * 0.2); ctx.lineTo(x, r * 0.2 + 5 + open * 3); ctx.lineTo(x + 1.5, r * 0.2); }
+      ctx.fill();
+    }
+    eyeball(-r * 0.4, -r * 0.4, 1.6, '#e8f0f0', e.age); eyeball(r * 0.4, -r * 0.4, 1.6, '#e8f0f0', e.age);
+  },
+
+  piranha(e, f) {                     // BONE PIRANHA: a skull-faced fish all teeth
+    f = diverPose(e, f); ctx.scale(e.r / 14, e.r / 14);
+    const wag = Math.sin(e.age * 16) * 4;
+    flat(() => path([0, -10, -6 + wag, -22, 6 + wag, -22]), f ? PAPER : tone(e.color, -0.2), 1.6);     // tail
+    for (const sd of [-1, 1]) flat(() => path([sd * 7, -2, sd * 15, -8, sd * 9, 4]), f ? PAPER : tone(e.color, -0.3), 1.3);
+    oval(0, 0, 10, 13, 0, e.color, f, 2.2);
+    oval(0, 6, 9, 8, 0, BONE, f, 2);
+    if (!OUTLINE) {
+      ctx.fillStyle = MAW; ctx.beginPath(); ctx.ellipse(0, 9, 7, 3.5, 0, 0, TAU); ctx.fill();
+      ctx.fillStyle = BONE; ctx.strokeStyle = INK; ctx.lineWidth = 0.7; ctx.beginPath();
+      for (let x = -6; x <= 6; x += 3) { ctx.moveTo(x - 1.2, 6.5); ctx.lineTo(x, 10); ctx.lineTo(x + 1.2, 6.5); ctx.moveTo(x - 1.2, 12); ctx.lineTo(x, 8.5); ctx.lineTo(x + 1.2, 12); }
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle = MAW; for (const sd of [-1, 1]) { ctx.beginPath(); ctx.arc(sd * 4, 2, 2.4, 0, TAU); ctx.fill(); }
+      ctx.fillStyle = COL.red; for (const sd of [-1, 1]) { ctx.beginPath(); ctx.arc(sd * 4, 2.3, 0.9, 0, TAU); ctx.fill(); }
+    }
+  },
+
+  urchin(e, f) {                      // SPINE URCHIN: a rolling ball of needles around one eye
+    const t = e.age; ctx.scale(e.r / 24, e.r / 24);
+    spikes(14, 15, 28 + Math.sin(t * 3) * 2, t * 0.6, '#efe2ff', f, 2.4);
+    oval(0, 0, 18, 18, 0, e.color, f, 2.6);
+    if (!OUTLINE) for (let i = 0; i < 8; i++) { const a = (i / 8) * TAU + t * 0.6; glow(Math.cos(a) * 12, Math.sin(a) * 12, 1.8, '#8affff', 0.8); }
+    const open = e.mode === 1 && e.fireT < 0.5 ? 1 : 0.6;
+    oval(0, 0, 8, 8 * open, 0, '#f6edd2', f, 2);
+    eyeball(0, 0, 5 * open, '#ffd66a', t);
+  },
+
+  // STAGE 4 · INSIDE THE LEVIATHAN ------------------------------------------
+  fluke(e, f) {                       // BLOOD FLUKE: a flat leaf-shaped parasite with a sucker mouth
+    const t = e.age, w = Math.sin(t * 5) * 1.5; ctx.scale(e.r / 14, e.r / 14);
+    celBuild(() => { ctx.beginPath(); ctx.moveTo(0, 14); ctx.bezierCurveTo(-14 - w, 6, -10, -12, 0, -14); ctx.bezierCurveTo(10, -12, 14 + w, 6, 0, 14); }, e.color, 13, f, 2.2);
+    veins([[-6, -6, 0, 0, 5, 8], [6, -8, 2, -2, -4, 6]]);
+    if (!OUTLINE) { ctx.fillStyle = tone(e.color, -0.3); for (const [x, y] of [[-4, -2], [4, 0], [0, 6]]) { ctx.beginPath(); ctx.arc(x, y, 1.6, 0, TAU); ctx.fill(); } }
+    maw(0, 8, 4, 3.5, 6, 0.7 + 0.3 * Math.sin(t * 7));
+    eyeball(-3, -8, 1.5, EYE, t); eyeball(3, -8, 1.5, EYE, t);
+  },
+
+  tapeworm(e, f) {                    // TAPEWORM: a long ribbon of flat segments and a hooked head
+    const r = e.r;
+    weaverSegs(e, 9, 0.065, (x, y, k) => {
+      const ww = r * (0.8 - k * 0.05), hh = r * 0.42;
+      celBuild(() => path([x - ww, y - hh, x + ww, y - hh, x + ww * 0.85, y + hh, x - ww * 0.85, y + hh]), k % 2 ? e.color : tone(e.color, -0.15), ww, f, 1.6);
+    });
+    oval(0, 0, r * 0.55, r * 0.6, 0, tone(e.color, 0.1), f, 2);
+    maw(0, r * 0.15, r * 0.38, r * 0.34, 8, 0.7 + 0.3 * Math.sin(e.age * 6));
+    eyeball(-r * 0.3, -r * 0.32, 1.4, EYE, e.age); eyeball(r * 0.3, -r * 0.32, 1.4, EYE, e.age);
+  },
+
+  leech(e, f) {                       // LEECH: a tapering slug with a ring-of-teeth sucker
+    f = diverPose(e, f); ctx.scale(e.r / 14, e.r / 14);
+    const sq = 1 + 0.12 * Math.sin(e.age * 9);
+    ctx.save(); ctx.scale(1 / sq, sq);
+    celBuild(() => { ctx.beginPath(); ctx.moveTo(0, -20); ctx.bezierCurveTo(-10, -16, -11, 6, -7, 12); ctx.quadraticCurveTo(0, 17, 7, 12); ctx.bezierCurveTo(11, 6, 10, -16, 0, -20); }, e.color, 16, f, 2.2);
+    if (!OUTLINE) { ctx.strokeStyle = tone(e.color, -0.4); ctx.lineWidth = 1.2; ctx.beginPath(); for (let y = -14; y <= 6; y += 5) { ctx.moveTo(-8, y); ctx.quadraticCurveTo(0, y + 2.5, 8, y); } ctx.stroke(); }
+    ctx.restore();
+    maw(0, 11, 6, 5, 10, 1);
+    eyeball(-3, -12, 1.3, EYE, e.age); eyeball(3, -12, 1.3, EYE, e.age);
+  },
+
+  polyp(e, f) {                       // POLYP: a swollen growth crowned with little mouths on stalks
+    const t = e.age; ctx.scale(e.r / 24, e.r / 24);
+    for (let i = 0; i < 5; i++) {
+      const a = -Math.PI / 2 + (i - 2) * 0.55, sw = Math.sin(t * 3 + i) * 3;
+      const x1 = Math.cos(a) * 30 + sw, y1 = Math.sin(a) * 28;
+      tendril(Math.cos(a) * 14, Math.sin(a) * 14, x1, y1, sw, tone(e.color, -0.15), 3.5);
+      oval(x1, y1, 4.5, 4.5, 0, '#d47a8a', f, 1.6);
+      maw(x1, y1, 3, 3, 5, 0.5 + 0.5 * Math.abs(Math.sin(t * 4 + i)));
+    }
+    const pulse = 1 + 0.05 * Math.sin(t * 4);
+    ctx.save(); ctx.scale(pulse, 1 / pulse); oval(0, 2, 21, 18, 0, e.color, f, 2.6); ctx.restore();
+    veins([[-16, 0, -8, -10, 4, -12], [14, -4, 8, 6, 14, 12]]);
+    const open = e.mode === 1 && e.fireT < 0.5 ? 1 - e.fireT / 0.5 : 0.3;
+    maw(0, 8, 8, 6, 9, 0.35 + open * 0.7);
+    eyeball(-8, -4, 2.8, EYE, t); eyeball(8, -4, 2.8, EYE, t);
+  },
+
+  // STAGE 5 · PRISMATIC VOID -------------------------------------------------
+  shard(e, f) {                       // EYE SHARD: a spinning triangle of glass with an eye in it
+    const t = e.age; ctx.scale(e.r / 14, e.r / 14);
+    ctx.save(); ctx.rotate(t * 2.2);
+    cel([0, -15, 13, 8, -13, 8], e.color, 14, f, 2.2);
+    if (!OUTLINE) { ctx.strokeStyle = `hsl(${(t * 120) % 360},90%,75%)`; ctx.lineWidth = 1.5; path([0, -9, 7.5, 4.5, -7.5, 4.5]); ctx.stroke(); }
+    ctx.restore();
+    eyeball(0, 0, 3.6, '#ffd66a', t);
+  },
+
+  halo(e, f) {                        // HALO CHAIN: linked gold rings, the lead one with a staring eye
+    const r = e.r;
+    weaverSegs(e, 5, 0.09, (x, y, k) => {
+      const rr = r * (0.6 - k * 0.07);
+      ctx.save(); ctx.translate(x, y); ctx.scale(1, 0.55);
+      const passes = OUTLINE ? [[5 + OUT_W * 2, PAPER]] : [[5, INK], [2.6, f ? PAPER : e.color]];
+      for (const [lw, c] of passes) { ctx.lineWidth = lw; ctx.strokeStyle = c; ctx.beginPath(); ctx.arc(0, 0, rr, 0, TAU); ctx.stroke(); }
+      ctx.restore();
+    });
+    ctx.save(); ctx.rotate(e.age * 1.5); spikes(8, r * 0.8, r * 1.15, 0, e.color, f, 2); ctx.restore();
+    const passes = OUTLINE ? [[6 + OUT_W * 2, PAPER]] : [[6, INK], [3.4, f ? PAPER : e.color]];
+    for (const [lw, c] of passes) { ctx.lineWidth = lw; ctx.strokeStyle = c; ctx.beginPath(); ctx.arc(0, 0, r * 0.78, 0, TAU); ctx.stroke(); }
+    eyeball(0, 0, r * 0.38, '#ff5df0', e.age);
+  },
+
+  mirror(e, f) {                      // MIRROR BLADE: a living sliver of mirror glass
+    f = diverPose(e, f); ctx.scale(e.r / 14, e.r / 14);
+    for (const sd of [-1, 1]) cel([sd * 2, -6, sd * 14, -16, sd * 8, 2], tone(e.color, -0.2), 10, f, 1.6);
+    cel([0, 22, 6, 0, 0, -18, -6, 0], e.color, 18, f, 2.2);
+    if (!OUTLINE) {
+      const sh = ((e.age * 1.5) % 1) * 40 - 20;
+      ctx.save(); path([0, 22, 6, 0, 0, -18, -6, 0]); ctx.clip();
+      ctx.fillStyle = 'rgba(255,255,255,0.75)'; path([-8, sh - 4, 8, sh - 10, 8, sh - 6, -8, sh]); ctx.fill();
+      ctx.restore();
+    }
+    eyeball(0, -4, 2.6, COL.red, e.age);
+  },
+
+  cherub(e, f) {                      // HOLLOW CHERUB: a cracked porcelain face on tiny wings
+    const t = e.age; ctx.scale(e.r / 24, e.r / 24);
+    const flap = 0.4 + 0.6 * Math.abs(Math.sin(t * 14));
+    for (const sd of [-1, 1]) for (let i = 2; i >= 0; i--)
+      oval(sd * (20 + i * 6), -8 - i * 4 * flap, 10, 4, sd * (-0.5 - i * 0.25) * flap, i % 2 ? '#f3ead2' : '#e3d6b4', f, 1.5);
+    oval(0, 0, 18, 20, 0, e.color, f, 2.6);
+    if (!OUTLINE) {
+      ctx.strokeStyle = INK; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.moveTo(6, -19); ctx.lineTo(3, -10); ctx.lineTo(8, -4); ctx.lineTo(5, 4); ctx.stroke();   // crack
+      ctx.fillStyle = MAW; for (const sd of [-1, 1]) { ctx.beginPath(); ctx.ellipse(sd * 7, -3, 4.2, 5.4, 0, 0, TAU); ctx.fill(); }
+      ctx.fillStyle = '#ffd66a'; for (const sd of [-1, 1]) { ctx.beginPath(); ctx.arc(sd * 7 + Math.cos(LOOK) * 1.2, -2 + Math.sin(LOOK) * 1.2, 1.3, 0, TAU); ctx.fill(); }
+      ctx.fillStyle = 'rgba(255,120,150,0.35)'; for (const sd of [-1, 1]) { ctx.beginPath(); ctx.arc(sd * 11, 6, 3, 0, TAU); ctx.fill(); }
+    }
+    const open = e.mode === 1 && e.fireT < 0.5 ? 1 : 0.3;
+    maw(0, 10, 5, 4, 8, 0.3 + open * 0.7);
+    ctx.save(); ctx.translate(0, -26); ctx.scale(1, 0.35);
+    const passes = OUTLINE ? [[4 + OUT_W * 2, PAPER]] : [[4, INK], [2, COL.gold]];
+    for (const [lw, c] of passes) { ctx.lineWidth = lw; ctx.strokeStyle = c; ctx.beginPath(); ctx.arc(0, 0, 12, 0, TAU); ctx.stroke(); }
+    ctx.restore();
+  },
+});
+
 function drawEnemy(e) {
-  const draw = CREATURE[e.type] || CREATURE.drone, flash = e.flash > 0;
+  const draw = CREATURE[e.look] || CREATURE[e.type] || CREATURE.drone, flash = e.flash > 0;
   LOOK = S ? Math.atan2(S.p.y - e.y, S.p.x - e.x) : Math.PI / 2;
   // pass 1: thin white rim around the silhouette; pass 2: the creature itself
   ctx.save(); ctx.translate(e.x, e.y);

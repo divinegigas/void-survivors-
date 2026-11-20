@@ -52,11 +52,12 @@ const CFG = {
     graceTime: 1.5,           // quiet seconds at the start
     startInterval: 1.6,       // seconds between enemy groups at the start
     minInterval: 0.5,         // ...and once fully ramped up
-    rampSeconds: 320,         // how long it takes to reach full intensity
+    rampSeconds: 280,         // how long it takes to reach full intensity
     duringBossMul: 2.5,       // fewer small enemies while a boss is up
   },
 
-  bossHpMul: 0.5,             // scales every boss's health (tuned for 8-minute stages and half-rate XP)
+  bossHpMul: 1.0,             // scales every boss's health (doubled from 0.5)
+  finalBossSize: 1.3,         // final bosses are this much bigger than their base size (hitbox and drawing)
   stageScale: {               // how much harder each stage after the first gets
     enemyHp: 0.5,             // +50% enemy health per stage (your loadout carries over, so the hive has to keep up)
     hpGrowth: 0.2,            // enemy health also climbs 20% faster during each stage, per stage
@@ -68,12 +69,12 @@ const CFG = {
     credits: 0,               // extra bounty per stage (0: later stages already have far more to kill)
   },
   level: {
-    length: 480,              // 8:00: the clock stops and the final boss arrives
-    miniBosses: [120, 240, 360],  // mini-bosses at 2:00, 4:00 and 6:00
+    length: 420,              // 7:00: the clock stops and the final boss arrives
+    miniBosses: [105, 210, 315],  // mini-bosses at 1:45, 3:30 and 5:15
     warnTime: 3,              // seconds of WARNING before each boss
   },
 
-  enemyHpGrowthPerMin: 0.35,  // enemies get +35% HP per minute survived
+  enemyHpGrowthPerMin: 0.45,  // enemies get +45% of their starting HP per minute survived (was 35%)
   enemyBulletSpeed: 150,
   enemyBulletSpeedMax: 1.7,   // enemy bullets speed up through the level, up to 1.7x
 };
@@ -644,25 +645,26 @@ function newGame(state, stage) {
 // Enemies
 // ============================================================================
 // ============================================================================
-// Stages. Each: 8 minutes, 3 mini-bosses (same brains, new skins), its own
-// final boss, music, look, enemy colours, wave mix and loadout slots.
+// Stages. Each: 7 minutes, 3 mini-bosses (same brains, new skins), its own
+// enemies, final boss, music, look, wave mix and loadout slots.
+// foes: which creature fills each role (drone / weaver / diver / gunner) on that stage.
 // ============================================================================
 const STAGES = [null,
   { name: 'HIVE FLEET', sub: 'Break through the swarm', music: 'level1', final: 'queen', slots: [2, 2],
     minis: { brute: ['BROOD BRUTE', '#6d3a8f'], mother: ['SPORE MOTHER', '#62b39a'], stalker: ['SCYTHE WRAITH', '#d8ccb4'] },
-    tint: {}, waves: { single: 3, line: 3, snake: 2, divers: 1.5, gunner: 1.2 } },
+    foes: { drone: 'drone', weaver: 'weaver', diver: 'diver', gunner: 'gunner' }, waves: { single: 3, line: 3, snake: 2, divers: 1.5, gunner: 1.2 } },
   { name: 'WARP ZONE', sub: 'Reality bends at lightspeed', music: 'level2', final: 'wyrm', slots: [3, 3],
     minis: { brute: ['PHASE BRUTE', '#5b6bd6'], mother: ['FLUX MOTHER', '#c86bff'], stalker: ['RIFT WRAITH', '#9be8ff'] },
-    tint: { drone: '#7de0ff', weaver: '#c86bff', diver: '#ff5df0', gunner: '#5d9dff' }, waves: { single: 2, line: 3, snake: 2, divers: 3, gunner: 1.3 } },
+    foes: { drone: 'blinker', weaver: 'phaseel', diver: 'streak', gunner: 'prism' }, waves: { single: 2, line: 3, snake: 2, divers: 3, gunner: 1.3 } },
   { name: 'THE DEEP', sub: 'Something ancient is waiting below', music: 'level3', final: 'maw', slots: [4, 4],
     minis: { brute: ['REEF CRUSHER', '#3f8f8a'], mother: ['SIREN SAC', '#9fd6c8'], stalker: ['DEEP REAPER', '#c8d0e0'] },
-    tint: { drone: '#7fd6c2', weaver: '#4fb3a0', diver: '#e8a0c8', gunner: '#7aa0d6' }, waves: { single: 2, line: 2, snake: 4, divers: 1.5, gunner: 1.6 } },
+    foes: { drone: 'jelly', weaver: 'eel', diver: 'piranha', gunner: 'urchin' }, waves: { single: 2, line: 2, snake: 4, divers: 1.5, gunner: 1.6 } },
   { name: 'INSIDE THE LEVIATHAN', sub: 'Fly down its throat. Stop its heart.', music: 'level4', final: 'heart', slots: [5, 5],
     minis: { brute: ['BILE TICK', '#8a2a3a'], mother: ['POLYP MOTHER', '#d47a8a'], stalker: ['MARROW WRAITH', '#e8d8c0'] },
-    tint: { drone: '#e88a8a', weaver: '#c2405a', diver: '#d86a9a', gunner: '#e0b060' }, waves: { single: 4, line: 3, snake: 2, divers: 2, gunner: 2 } },
+    foes: { drone: 'fluke', weaver: 'tapeworm', diver: 'leech', gunner: 'polyp' }, waves: { single: 4, line: 3, snake: 2, divers: 2, gunner: 2 } },
   { name: 'PRISMATIC VOID', sub: 'Beyond reality. Something divine and wrong.', music: 'level5', final: 'seraph', slots: [6, 6],
     minis: { brute: ['PRISM BRUTE', '#a88aff'], mother: ['HALO MOTHER', '#ffd0f0'], stalker: ['MIRROR WRAITH', '#e0f0ff'] },
-    tint: { drone: '#b8a8ff', weaver: '#ff9ae0', diver: '#8affe0', gunner: '#ffe08a' }, waves: { single: 3, line: 3, snake: 3, divers: 3, gunner: 2 } },
+    foes: { drone: 'shard', weaver: 'halo', diver: 'mirror', gunner: 'cherub' }, waves: { single: 3, line: 3, snake: 3, divers: 3, gunner: 2 } },
 ];
 const STAGE_COUNT = STAGES.length - 1;
 const stageDef = () => STAGES[(S && S.stage) || 1];
@@ -684,8 +686,32 @@ const ENEMY = {
   heart:   { name: 'LEVIATHAN HEART', hp: 10000, r: 60, xp: 0, credits: 300, color: '#c2283e', blood: 'P',  boss: true, final: true },
   seraph:  { name: 'SERAPH OF THE VOID', hp: 12000, r: 58, xp: 0, credits: 500, color: '#f3ead2', blood: 'PG', boss: true, final: true },
 };
+// Each stage's own small enemies. They fill the same four roles as the stage 1 bugs
+// (role = how they move and shoot), each with its own look, name and a twist.
+const FOE = {
+  drone:    { name: 'Larva',        color: '#eaa0ad', blood: 'G' },
+  weaver:   { name: 'Lamprey',      color: '#e2607f', blood: 'P' },
+  diver:    { name: 'Flayer',       color: '#9b4dcc', blood: 'G' },
+  gunner:   { name: 'Bloater',      color: '#cfc04a', blood: 'G' },
+  blinker:  { name: 'Blink Mite',   color: '#7de0ff', blood: 'P' },   // stage 2: teleports sideways once
+  phaseel:  { name: 'Phase Eel',    color: '#c86bff', blood: 'P' },   // sharp zig-zags
+  streak:   { name: 'Warp Streak',  color: '#ff5df0', blood: 'P' },   // faster, quicker dive
+  prism:    { name: 'Prism Node',   color: '#5d9dff', blood: 'P' },   // rotating cross bursts
+  jelly:    { name: 'Drift Jelly',  color: '#9fe8e0', blood: 'G' },   // stage 3: bobs, spits wobbling bubbles
+  eel:      { name: 'Gulper Eel',   color: '#4fb3a0', blood: 'G' },   // wide slow swim, bubble shots
+  piranha:  { name: 'Bone Piranha', color: '#e8a0c8', blood: 'P' },   // dives twice
+  urchin:   { name: 'Spine Urchin', color: '#7aa0d6', blood: 'G' },   // slow rings of big bubbles
+  fluke:    { name: 'Blood Fluke',  color: '#e88a8a', blood: 'P' },   // stage 4: drifts toward you
+  tapeworm: { name: 'Tapeworm',     color: '#e8d0a0', blood: 'G' },   // long, spits sideways too
+  leech:    { name: 'Leech',        color: '#7a3050', blood: 'P' },   // its dive homes in
+  polyp:    { name: 'Polyp',        color: '#e0b060', blood: 'PG' },  // aimed fans and rings
+  shard:    { name: 'Eye Shard',    color: '#b8a8ff', blood: 'PG' },  // stage 5: spinning, 3-way shots
+  halo:     { name: 'Halo Chain',   color: '#ffd66a', blood: 'P' },   // rings that loop as they fall
+  mirror:   { name: 'Mirror Blade', color: '#8affe0', blood: 'PG' },  // fires a fan as it dives
+  cherub:   { name: 'Hollow Cherub', color: '#ffe0e8', blood: 'PG' }, // wide aimed fans
+};
 const BLOOD = { P: '#9b3fd6', G: '#c4cf1f' };      // purple ichor and acid-yellow-green bile (kept away from the gem mint)
-const bloodOf = e => { const b = ENEMY[e.type].blood || 'G'; return BLOOD[b.length > 1 ? pick(b.split('')) : b]; };
+const bloodOf = e => { const b = e.blood || ENEMY[e.type].blood || 'G'; return BLOOD[b.length > 1 ? pick(b.split('')) : b]; };
 const LEVEL_EVENTS = () => [
   ...CFG.level.miniBosses.map((t, i) => ({ t, type: ['brute', 'mother', 'stalker'][i] })),
   { t: CFG.level.length, type: stageDef().final },
@@ -697,9 +723,10 @@ function spawnEnemy(type, x, y, extra) {
   const hp = d.final ? d.hp * CFG.bossHpMul * (1 + sc.finalHp * k)       // bosses have fixed health per stage
            : d.boss ? d.hp * CFG.bossHpMul * (1 + sc.bossHp * k)
            : d.hp * (1 + CFG.enemyHpGrowthPerMin * (1 + sc.hpGrowth * k) * S.t / 60) * (1 + sc.enemyHp * k);
-  const mini = st.minis[type], color = mini ? mini[1] : st.tint[type] || d.color;
-  const e = Object.assign({ type, x, y, hp, maxHp: hp, r: d.r, xp: d.xp, credits: d.credits * (1 + sc.credits * k), color, boss: !!d.boss, final: !!d.final,
-                            name: mini ? mini[0] : d.name,
+  const mini = st.minis[type], foe = !d.boss && FOE[(st.foes || {})[type] || type], color = mini ? mini[1] : foe ? foe.color : d.color;
+  const e = Object.assign({ type, x, y, hp, maxHp: hp, r: d.final ? d.r * CFG.finalBossSize : d.r,
+                            look: foe ? st.foes[type] : type, blood: foe ? foe.blood : d.blood, xp: d.xp, credits: d.credits * (1 + sc.credits * k), color, boss: !!d.boss, final: !!d.final,
+                            name: mini ? mini[0] : foe ? foe.name : d.name,
                             age: 0, flash: 0, mode: 0, fireT: rand(0.8, 2.0), vx: 0, vy: 0 }, extra);
   S.enemies.push(e);
   return e;
@@ -746,7 +773,7 @@ function spawnPattern() {
 }
 
 function spawnBoss(type) {
-  spawnEnemy(type, W / 2, -ENEMY[type].r - 20, { ty: ENEMY[type].final ? 160 : 125, sway: 0, spin: 0, shotT: 1.5,
+  spawnEnemy(type, W / 2, -ENEMY[type].r * (ENEMY[type].final ? CFG.finalBossSize : 1) - 20, { ty: ENEMY[type].final ? 170 : 125, sway: 0, spin: 0, shotT: 1.5,
     spinT: 0.6, ringT: 2.5, spawnT: 3, patT: 4, phase: 1, volley: 0, ring: 0, beatT: 1, beat: 0, warpT: 6, blink: 0,
     laneT: 2, segT: 1.6, lureT: 5, lure: 0, jawT: 4, jaw: 0, featherT: 1, rainT: 0, trail: [] });
 }
@@ -758,7 +785,7 @@ function bossEnter(e, dt) {
   if (e.y >= e.ty) e.mode = 1;
   return true;
 }
-function bossBrute(e, dt) {         // 3:45 · aimed fans, side sprays, calls in mites
+function bossBrute(e, dt) {         // 1st mini-boss · aimed fans, side sprays, calls in mites
   if (bossEnter(e, dt)) return;
   const angry = e.hp < e.maxHp / 2;
   e.sway += dt;
@@ -772,7 +799,7 @@ function bossBrute(e, dt) {         // 3:45 · aimed fans, side sprays, calls in
   }
   if ((e.spawnT -= dt) <= 0) { e.spawnT = 5; for (let i = 0; i < 3; i++) spawnEnemy('drone', e.x + (i - 1) * 40, e.y + 20, { vy: 110, fireT: rand(1, 2) }); }
 }
-function bossMother(e, dt) {        // 7:30 · alternating spore rings, a spiral when hurt, wriggler broods
+function bossMother(e, dt) {        // 2nd mini-boss · alternating spore rings, a spiral when hurt, wriggler broods
   if (bossEnter(e, dt)) return;
   e.sway += dt;
   e.x = W / 2 + Math.sin(e.sway * 0.3) * (W / 2 - 80);
@@ -792,7 +819,7 @@ function bossMother(e, dt) {        // 7:30 · alternating spore rings, a spiral
     for (let i = 0; i < 4; i++) spawnEnemy('weaver', bx, e.y - i * 28, { bx, ph: 0, amp: 60, vy: 120, fireT: rand(2, 4) });
   }
 }
-function bossStalker(e, dt) {       // 11:15 · sweeping scythe streams, then dashes over you and slashes
+function bossStalker(e, dt) {       // 3rd mini-boss · sweeping scythe streams, then dashes over you and slashes
   if (bossEnter(e, dt)) return;
   e.patT -= dt;
   if (e.mode === 1) {
@@ -860,27 +887,28 @@ function phaseShift(e, phase, word, color) {          // shared drama when a bos
 function bossWyrm(e, dt) {
   if (e.x > -500) { e.trail.unshift([e.x, e.y]); if (e.trail.length > 150) e.trail.pop(); }
   if (bossEnter(e, dt)) return;
-  const phase = e.hp / e.maxHp > 0.5 ? 1 : 2;
-  phaseShift(e, phase, 'SKRRAAAH!', '#c86bff');
+  const f = e.hp / e.maxHp, phase = f > 0.66 ? 1 : f > 0.33 ? 2 : 3;
+  phaseShift(e, phase, phase === 2 ? 'SKRRAAAH!' : 'VRRRAAAOOOM!', '#c86bff');
   if (e.blink > 0) {                                           // mid-warp: gone from the battlefield
     if ((e.blink -= dt) <= 0) {
       e.x = rand(70, W - 70); e.y = rand(120, 230); e.trail = [];
       burst(e.x, e.y, 54, 'VWORP!', '#c86bff');
       for (let k = 0; k < 18; k++) enemyShot(e.x, e.y, (k / 18) * TAU, 0.8);
+      if (phase === 3) for (let k = 0; k < 18; k++) enemyShot(e.x, e.y, ((k + 0.5) / 18) * TAU, 0.55);   // a second, slower ring
     }
     return;
   }
   e.sway += dt;
   e.x += (W / 2 + Math.sin(e.sway * 0.9) * (W / 2 - 70) - e.x) * Math.min(1, dt * 2);
   e.y += (175 + Math.sin(e.sway * 1.8) * 55 - e.y) * Math.min(1, dt * 2);
-  if ((e.warpT -= dt) <= 0) { e.warpT = phase === 1 ? 7 : 5; e.blink = 0.7; e.x = -999; e.y = -999; return; }
+  if ((e.warpT -= dt) <= 0) { e.warpT = [0, 7, 5, 3.6][phase]; e.blink = 0.7; e.x = -999; e.y = -999; return; }
   if ((e.laneT -= dt) <= 0) {                                  // a curtain with gaps to slip through
-    e.laneT = phase === 1 ? 3.2 : 2.4;
-    const gap = rand(50, W - 50), slant = phase === 2 && e.volley++ % 2 ? rand(-0.35, 0.35) : 0;
+    e.laneT = [0, 3.2, 2.4, 2.0][phase];
+    const gap = rand(50, W - 50), slant = phase >= 2 && e.volley++ % 2 ? rand(-0.35, 0.35) : 0;
     for (let x = 12; x < W; x += 20) if (Math.abs(x - gap) > 34) enemyShot(x, -6, Math.PI / 2 + slant, 0.7);
   }
   if ((e.segT -= dt) <= 0) {                                   // every few body segments spit at you
-    e.segT = phase === 1 ? 1.7 : 1.1;
+    e.segT = [0, 1.7, 1.1, 0.8][phase];
     for (let i = 14; i < e.trail.length; i += 22) { const [x, y] = e.trail[i]; enemyShot(x, y, Math.atan2(S.p.y - y, S.p.x - x), 0.9); }
   }
 }
@@ -889,34 +917,35 @@ function bossWyrm(e, dt) {
 // flashes then fires a beam of shots at you, and a ring of teeth when the jaw opens.
 function bossMaw(e, dt) {
   if (bossEnter(e, dt)) return;
-  const phase = e.hp / e.maxHp > 0.5 ? 1 : 2;
-  phaseShift(e, phase, 'GRRRLLBLUB!', '#2f6f7a');
+  const f = e.hp / e.maxHp, phase = f > 0.66 ? 1 : f > 0.33 ? 2 : 3;
+  phaseShift(e, phase, phase === 2 ? 'GRRRLLBLUB!' : 'BLUOOOORGH!!', '#2f6f7a');
   e.sway += dt;
   e.x = W / 2 + Math.sin(e.sway * 0.35) * (W / 2 - 90);
   e.y = e.ty + Math.sin(e.sway * 0.9) * 10;
   e.jaw = Math.max(0, e.jaw - dt * 1.5);
   if ((e.shotT -= dt) <= 0) {                                  // bubbles drift and sway
-    e.shotT = phase === 1 ? 1.4 : 1.0;
-    const n = phase === 1 ? 5 : 7;
+    e.shotT = [0, 1.4, 1.0, 0.8][phase];
+    const n = [0, 5, 7, 9][phase];
     for (let k = 0; k < n; k++) enemyShot(e.x + (k - (n - 1) / 2) * 14, e.y + 40, Math.PI / 2 + (k - (n - 1) / 2) * 0.22, 0.45, { r: 7, wob: 46, wf: 2.6 + k * 0.3 });
   }
   if (e.lure > 0) {                                            // the lure flashes, then fires its beam
     e.lure -= dt;
     if (e.lure < 0.5 && (e.spinT -= dt) <= 0) {
       e.spinT = 0.035;
-      enemyShot(e.x + Math.sin(e.age * 2) * 26, e.y + 78, e.lureA, 1.45);
+      enemyShot(e.x + Math.sin(e.age * 2) * 26, e.y + e.r * 1.43, e.lureA, 1.45);
     }
   } else if ((e.lureT -= dt) <= 0) {
-    e.lureT = phase === 1 ? 6 : 4.5; e.lure = 1.5; e.spinT = 0;
-    e.lureA = Math.atan2(S.p.y - (e.y + 78), S.p.x - e.x);
+    e.lureT = [0, 6, 4.5, 3.4][phase]; e.lure = 1.5; e.spinT = 0;
+    e.lureA = Math.atan2(S.p.y - (e.y + e.r * 1.43), S.p.x - e.x);
   }
   if ((e.jawT -= dt) <= 0) {                                   // jaw snaps: a ring of teeth
-    e.jawT = phase === 1 ? 4.5 : 3.4; e.jaw = 1;
+    e.jawT = [0, 4.5, 3.4, 2.8][phase]; e.jaw = 1;
     const n = 20, off = Math.random() * TAU;
     for (let k = 0; k < n; k++) enemyShot(e.x, e.y + 30, off + (k / n) * TAU, 0.7);
+    if (phase === 3) for (let k = 0; k < n; k++) enemyShot(e.x, e.y + 30, off + ((k + 0.5) / n) * TAU, 0.45);   // teeth behind the teeth
   }
-  if (phase === 2 && (e.spawnT -= dt) <= 0) {
-    e.spawnT = 6;
+  if (phase >= 2 && (e.spawnT -= dt) <= 0) {
+    e.spawnT = phase === 3 ? 4.5 : 6;
     const bx = clamp(e.x, 80, W - 80);
     for (let i = 0; i < 3; i++) spawnEnemy('weaver', bx, e.y - i * 28, { bx, ph: 0, amp: 70, vy: 120, fireT: rand(2, 4) });
   }
@@ -994,32 +1023,66 @@ function updateEnemy(e, dt) {
   e.age += dt;
   e.flash = Math.max(0, e.flash - dt);
   switch (e.type) {
-    case 'drone':
-      e.y += e.vy * dt;
-      if ((e.fireT -= dt * S.fireMul) <= 0 && e.y > 10 && e.y < H * 0.65) { e.fireT = rand(1.6, 2.8); enemyShot(e.x, e.y + 8, aimAt(e) + rand(-0.08, 0.08)); }
+    case 'drone': {
+      const lk = e.look;
+      e.y += e.vy * (lk === 'blinker' ? 1.2 : lk === 'jelly' ? 0.75 : 1) * dt;
+      if (lk === 'blinker' && !e.blinked && e.y > (e.by || (e.by = rand(70, 220)))) {        // warps sideways once
+        e.blinked = 1; sparks(e.x, e.y, e.color, 6);
+        e.x = clamp(e.x + (Math.random() < 0.5 ? -1 : 1) * rand(60, 110), 20, W - 20); sparks(e.x, e.y, e.color, 6);
+        e.fireT = Math.min(e.fireT, 0.35);
+      }
+      if (lk === 'jelly') { if (e.x0 === undefined) e.x0 = e.x; e.x = clamp(e.x0 + Math.sin(e.age * 1.6 + e.x0) * 26, 14, W - 14); }
+      if (lk === 'fluke') e.x += clamp(p.x - e.x, -1, 1) * 38 * dt;                          // drifts toward you
+      if ((e.fireT -= dt * S.fireMul) <= 0 && e.y > 10 && e.y < H * 0.65) {
+        e.fireT = rand(1.6, 2.8);
+        const a = aimAt(e);
+        if (lk === 'jelly') enemyShot(e.x, e.y + 8, a, 0.7, { r: 6, wob: 34, wf: 3 });
+        else if (lk === 'shard') { e.fireT += 0.8; for (let k = -1; k <= 1; k++) enemyShot(e.x, e.y + 8, a + k * 0.22, 0.95); }
+        else enemyShot(e.x, e.y + 8, a + rand(-0.08, 0.08));
+      }
       break;
-    case 'weaver':
-      e.y += e.vy * dt;
-      e.x = e.bx + Math.sin(e.age * 2.4 + e.ph) * e.amp;
-      if ((e.fireT -= dt * S.fireMul) <= 0 && e.y > 10 && e.y < H * 0.6) { e.fireT = rand(2.5, 4); enemyShot(e.x, e.y + 8, Math.PI / 2); }
+    }
+    case 'weaver': {
+      const lk = e.look;
+      e.y += e.vy * (lk === 'eel' ? 0.8 : 1) * dt;
+      e.x = weaverX(e, e.age);
+      if (lk === 'halo') e.y += Math.cos(e.age * 2.4 + e.ph) * e.amp * 2.4 * dt;                      // loops as it falls
+      if ((e.fireT -= dt * S.fireMul) <= 0 && e.y > 10 && e.y < H * 0.6) {
+        e.fireT = rand(2.5, 4);
+        if (lk === 'eel') enemyShot(e.x, e.y + 8, Math.PI / 2, 0.75, { r: 6, wob: 30, wf: 2.6 });
+        else if (lk === 'tapeworm') { enemyShot(e.x, e.y + 8, Math.PI / 2); enemyShot(e.x, e.y, 0.35, 0.7); enemyShot(e.x, e.y, Math.PI - 0.35, 0.7); }
+        else if (lk === 'halo') enemyShot(e.x, e.y + 8, aimAt(e), 0.9);
+        else enemyShot(e.x, e.y + 8, Math.PI / 2);
+      }
       break;
-    case 'diver':
-      if (e.mode === 0) { e.y += 140 * dt; if (e.y >= e.ty) { e.mode = 1; e.wait = 0.7; } }
+    }
+    case 'diver': {
+      const lk = e.look, dash = lk === 'streak' ? 470 : lk === 'leech' ? 300 : 360;
+      if (e.mode === 0) { e.y += 140 * dt; if (e.y >= e.ty) { e.mode = 1; e.wait = lk === 'streak' ? 0.45 : 0.7; } }
       else if (e.mode === 1) {
-        if ((e.wait -= dt) <= 0) { const a = aimAt(e); e.vx = Math.cos(a) * 360; e.vy = Math.sin(a) * 360; e.mode = 2; }
-      } else { e.x += e.vx * dt; e.y += e.vy * dt; }
+        if ((e.wait -= dt) <= 0) {
+          const a = aimAt(e); e.vx = Math.cos(a) * dash; e.vy = Math.sin(a) * dash; e.mode = 2; e.dashT = 0;
+          if (lk === 'mirror') for (let k = -2; k <= 2; k++) enemyShot(e.x, e.y, a + k * 0.28, 0.8);   // a fan of glass
+        }
+      } else {
+        e.dashT += dt;
+        if (lk === 'leech' && e.dashT < 1.3) {                                                        // its dive homes in
+          const want = aimAt(e), cur = Math.atan2(e.vy, e.vx);
+          let d = want - cur; d = Math.atan2(Math.sin(d), Math.cos(d));
+          const na = cur + clamp(d, -2.2 * dt, 2.2 * dt); e.vx = Math.cos(na) * dash; e.vy = Math.sin(na) * dash;
+        }
+        if (lk === 'piranha' && !e.second && e.dashT > 0.55 && e.y < H - 60) { e.second = 1; e.mode = 1; e.wait = 0.35; }   // bites twice
+        e.x += e.vx * dt; e.y += e.vy * dt;
+      }
       break;
+    }
     case 'gunner':
       if (e.mode === 0) { e.y += 70 * dt; if (e.y >= e.ty) e.mode = 1; }
       else if (e.mode === 1) {
         e.x += e.vx * dt;
         if (e.x < 30) { e.x = 30; e.vx = Math.abs(e.vx); }
         if (e.x > W - 30) { e.x = W - 30; e.vx = -Math.abs(e.vx); }
-        if ((e.fireT -= dt * S.fireMul) <= 0) {
-          e.fireT = 2.2;
-          const n = 10 + 2 * Math.floor(S.t / 120), off = Math.random() * TAU;
-          for (let i = 0; i < n; i++) enemyShot(e.x, e.y, off + (i / n) * TAU, 0.8);
-        }
+        if ((e.fireT -= dt * S.fireMul) <= 0) gunnerFire(e);
         if (e.age > 14) e.mode = 2;
       } else e.y += 80 * dt;
       break;
@@ -1033,6 +1096,41 @@ function updateEnemy(e, dt) {
   const dx = e.x - p.x, dy = e.y - p.y, rr = e.r + 6;
   if (!e.dead && dx * dx + dy * dy < rr * rr) {
     if (damagePlayer()) hitEnemy(e, 60, false);
+  }
+}
+
+function weaverX(e, t) {           // where a worm is sideways at time t (its body follows the same path)
+  if (e.bx === undefined) return e.x;
+  const ph = t * 2.4 + e.ph, lk = e.look;
+  const x = lk === 'phaseel' ? e.bx + (2 / Math.PI) * Math.asin(Math.sin(ph * 1.3)) * e.amp   // sharp zig-zag
+          : lk === 'eel' ? e.bx + Math.sin(ph * 0.6) * e.amp * 1.5                           // wide, slow swim
+          : e.bx + Math.sin(ph) * e.amp;
+  return clamp(x, 10, W - 10);
+}
+function gunnerFire(e) {            // each stage's big shooter has its own pattern
+  const n = 10 + 2 * Math.floor(S.t / 120), off = Math.random() * TAU, a = aimAt(e);
+  e.fireT = 2.2; e.volley = (e.volley || 0) + 1;
+  switch (e.look) {
+    case 'prism':                   // rotating crosses, quicker
+      e.fireT = 1.3;
+      for (let i = 0; i < 8; i++) enemyShot(e.x, e.y, e.volley * 0.21 + (i / 8) * TAU, 0.85);
+      break;
+    case 'urchin':                  // slow rings of big wobbling bubbles
+      e.fireT = 2.6;
+      for (let i = 0; i < n - 2; i++) enemyShot(e.x, e.y, off + (i / (n - 2)) * TAU, 0.5, { r: 6, wob: 20, wf: 2 + (i % 3) });
+      break;
+    case 'polyp':                   // aimed fans, a ring every other volley
+      e.fireT = 1.8;
+      for (let k = -3; k <= 3; k++) enemyShot(e.x, e.y + 10, a + k * 0.13, 0.9);
+      if (e.volley % 2 === 0) for (let i = 0; i < n; i++) enemyShot(e.x, e.y, off + (i / n) * TAU, 0.6);
+      break;
+    case 'cherub':                  // wide aimed fans that alternate with tight ones
+      e.fireT = 1.6;
+      { const wide = e.volley % 2, m = wide ? 11 : 5, step = wide ? 0.2 : 0.07;
+        for (let k = 0; k < m; k++) enemyShot(e.x, e.y + 10, a + (k - (m - 1) / 2) * step, wide ? 0.7 : 1.1); }
+      break;
+    default:
+      for (let i = 0; i < n; i++) enemyShot(e.x, e.y, off + (i / n) * TAU, 0.8);
   }
 }
 
