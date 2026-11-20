@@ -591,6 +591,7 @@ function newGame(state) {
          bubble: false, bubbleT: 0, repairT: 0 },
     weapons: {}, passives: {}, mod: null,
     bullets: [], ebullets: [], enemies: [], orbs: [], parts: [], novas: [], zaps: [], texts: [], bursts: [], laser: null,
+    gibs: [], splats: [],
     ult: null, overdrive: 0, warp: 0, phase: 0, hole: null, barrage: null, whiteout: 0,
     spawnT: CFG.spawn.graceTime, ev: 0, warned: false, warn: 0, warnName: '', queenUp: false, victoryT: 0,
     pending: 0, choices: null, choiceLevel: 0, uiLock: 0, uiPress: null, flash: null,
@@ -609,15 +610,17 @@ function newGame(state) {
 // ============================================================================
 // The hive fleet. r = hit size (20% bigger than before). Bosses don't leave the screen.
 const ENEMY = {
-  drone:   { name: 'Larva',          hp: 20,   r: 14, xp: 1,  credits: 1,   color: '#eaa0ad' },
-  weaver:  { name: 'Lamprey',        hp: 14,   r: 13, xp: 1,  credits: 1,   color: '#e2607f' },
-  diver:   { name: 'Flayer',         hp: 26,   r: 14, xp: 2,  credits: 1,   color: '#9b4dcc' },
-  gunner:  { name: 'Bloater',        hp: 120,  r: 24, xp: 6,  credits: 3,   color: '#cfc04a' },
-  brute:   { name: 'BROOD BRUTE',    hp: 2200, r: 44, xp: 25, credits: 40,  color: '#6d3a8f', boss: true },
-  mother:  { name: 'SPORE MOTHER',   hp: 3600, r: 48, xp: 30, credits: 60,  color: '#62b39a', boss: true },
-  stalker: { name: 'SCYTHE WRAITH',  hp: 5200, r: 42, xp: 35, credits: 80,  color: '#d8ccb4', boss: true },
-  queen:   { name: 'HIVE QUEEN',     hp: 11000, r: 66, xp: 0,  credits: 300, color: '#b0203a', boss: true },
+  drone:   { name: 'Larva',          hp: 20,   r: 14, xp: 1,  credits: 1,   color: '#eaa0ad', blood: 'G' },
+  weaver:  { name: 'Lamprey',        hp: 14,   r: 13, xp: 1,  credits: 1,   color: '#e2607f', blood: 'P' },
+  diver:   { name: 'Flayer',         hp: 26,   r: 14, xp: 2,  credits: 1,   color: '#9b4dcc', blood: 'G' },
+  gunner:  { name: 'Bloater',        hp: 120,  r: 24, xp: 6,  credits: 3,   color: '#cfc04a', blood: 'G' },
+  brute:   { name: 'BROOD BRUTE',    hp: 2200, r: 44, xp: 25, credits: 40,  color: '#6d3a8f', blood: 'P', boss: true },
+  mother:  { name: 'SPORE MOTHER',   hp: 3600, r: 48, xp: 30, credits: 60,  color: '#62b39a', blood: 'G', boss: true },
+  stalker: { name: 'SCYTHE WRAITH',  hp: 5200, r: 42, xp: 35, credits: 80,  color: '#d8ccb4', blood: 'P', boss: true },
+  queen:   { name: 'HIVE QUEEN',     hp: 11000, r: 66, xp: 0,  credits: 300, color: '#b0203a', blood: 'PG', boss: true },
 };
+const BLOOD = { P: '#9b3fd6', G: '#c4cf1f' };      // purple ichor and acid-yellow-green bile (kept away from the gem mint)
+const bloodOf = e => { const b = ENEMY[e.type].blood || 'G'; return BLOOD[b.length > 1 ? pick(b.split('')) : b]; };
 const LEVEL_EVENTS = () => [
   ...CFG.level.miniBosses.map((t, i) => ({ t, type: ['brute', 'mother', 'stalker'][i] })),
   { t: CFG.level.length, type: 'queen' },
@@ -935,15 +938,29 @@ function sparks(x, y, color, n) {
 }
 // Comic-book starbursts. word = null for a plain blast.
 const WORDS_SMALL = ['POP!', 'ZAP!', 'BAM!', 'POW!'], WORDS_MED = ['BLAM!', 'KRAK!', 'KA-POW!', 'WHAM!'];
-function burst(x, y, size, word, color) {
+const SPLATS_SMALL = ['SPLAT!', 'SPLUT!', 'GLORP!'], SPLATS_MED = ['SPLORCH!', 'SQUELCH!', 'SPLAT!'];
+function burst(x, y, size, word, color, splat) {
   if (S.bursts.length > 14) return;
-  S.bursts.push({ x, y, size, word, age: 0, life: word ? 0.75 : 0.3, rot: rand(-0.3, 0.3), color: color || COL.gold, spikes: word ? 12 : 9 });
+  S.bursts.push({ x, y, size, word, age: 0, life: word ? 0.75 : 0.3, rot: rand(-0.3, 0.3), color: color || COL.gold,
+                  spikes: word ? 12 : 9, splat: !!splat, seed: Math.random() * 10 });
 }
 function comicKill(e, big) {
-  if (big) burst(e.x, e.y, e.type === 'queen' ? 130 : 95, e.type === 'queen' ? 'KA-SPLAT!!' : 'KA-BOOM!', COL.gold);
-  else if (e.type === 'gunner') burst(e.x, e.y, 46, pick(WORDS_MED), COL.gold);
-  else if (Math.random() < 0.15 && S.bursts.filter(b => b.word).length < 3) burst(e.x, e.y, 30, pick(WORDS_SMALL), COL.gold);
-  else burst(e.x, e.y, e.r * 1.5, null, e.color);
+  const blood = bloodOf(e), wet = Math.random() < 0.5;   // half the words are splats
+  if (big) burst(e.x, e.y, e.type === 'queen' ? 130 : 95, e.type === 'queen' ? 'KA-SPLAT!!' : wet ? 'SPLOOORCH!' : 'KA-BOOM!', wet ? blood : COL.gold, wet);
+  else if (e.type === 'gunner') burst(e.x, e.y, 46, wet ? pick(SPLATS_MED) : pick(WORDS_MED), wet ? blood : COL.gold, wet);
+  else if (Math.random() < 0.18 && S.bursts.filter(b => b.word).length < 3) burst(e.x, e.y, 30, wet ? pick(SPLATS_SMALL) : pick(WORDS_SMALL), wet ? blood : COL.gold, wet);
+  else burst(e.x, e.y, e.r * 1.4, null, blood, true);
+  gore(e, blood, big);
+}
+// Blood: a spray of droplets that slow down and shrink, plus a stain that drifts off with the background.
+function gore(e, color, big) {
+  const n = big ? 34 : e.type === 'gunner' ? 16 : 9;
+  for (let i = 0; i < n && S.gibs.length < 260; i++) {
+    const a = Math.random() * TAU, sp = rand(40, big ? 260 : 170);
+    S.gibs.push({ x: e.x, y: e.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, r: rand(1.4, big ? 4.5 : 3), age: 0, life: rand(0.35, 0.8), color });
+  }
+  if (S.splats.length >= 28) S.splats.shift();
+  S.splats.push({ x: e.x, y: e.y, r: e.r * (big ? 1.4 : 1.1), seed: Math.random() * 10, age: 0, life: big ? 5 : 2.6, color });
 }
 function floatText(x, y, txt, color, size) { S.texts.push({ x, y, txt, color, size, age: 0 }); }
 
@@ -957,6 +974,9 @@ function updateParticles(dt) {
   for (const t of S.texts) { t.age += dt; t.y -= 25 * dt; if (t.age > 1.2) t.dead = true; }
   for (const z of S.zaps) { z.age += dt; if (z.age > 0.18) z.dead = true; }
   for (const b of S.bursts) { b.age += dt; if (b.age > b.life) b.dead = true; }
+  for (const g of S.gibs) { g.age += dt; g.x += g.vx * dt; g.y += g.vy * dt; g.vx *= 0.92; g.vy *= 0.92; if (g.age > g.life) g.dead = true; }
+  for (const sp of S.splats) { sp.age += dt; sp.y += 30 * dt; if (sp.age > sp.life || sp.y > H + 60) sp.dead = true; }
+  compact(S.gibs); compact(S.splats);
   compact(S.parts); compact(S.texts); compact(S.zaps); compact(S.bursts);
 }
 

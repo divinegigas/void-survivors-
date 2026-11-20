@@ -181,6 +181,24 @@ function burstPath(size, spikes, seed) {
   ctx.closePath();
 }
 
+// a gooey splat: a lumpy blob with a few drops thrown off it
+function splatPath(r, seed) {
+  ctx.beginPath();
+  const n = 14;
+  for (let i = 0; i <= n; i++) {
+    const a = (i / n) * TAU, k = 0.72 + 0.22 * Math.sin(i * 2.7 + seed) + (i % 3 === 0 ? 0.22 : 0);
+    const x = Math.cos(a) * r * k, y = Math.sin(a) * r * k;
+    if (i === 0) ctx.moveTo(x, y);
+    else { const am = a - Math.PI / n, km = 0.6 + 0.15 * Math.cos(i * 1.9 + seed); ctx.quadraticCurveTo(Math.cos(am) * r * km, Math.sin(am) * r * km, x, y); }
+  }
+  ctx.closePath();
+  for (let j = 0; j < 4; j++) {
+    const a = seed * 1.7 + j * 1.9, d = r * (1.15 + 0.15 * j), dr = r * (0.13 - j * 0.02);
+    ctx.moveTo(Math.cos(a) * d + dr, Math.sin(a) * d);
+    ctx.arc(Math.cos(a) * d, Math.sin(a) * d, dr, 0, TAU);
+  }
+}
+
 function heart(x, y, s) {
   ctx.beginPath();
   ctx.moveTo(x, y + s * 0.9);
@@ -637,6 +655,16 @@ function drawEnemy(e) {
 // World
 // ============================================================================
 function drawWorld() {
+  // blood stains drifting away with the background
+  for (const sp of S.splats) {
+    ctx.save(); ctx.translate(sp.x, sp.y);
+    ctx.globalAlpha = 0.45 * Math.min(1, (sp.life - sp.age) / 0.8);
+    splatPath(sp.r, sp.seed);
+    ctx.fillStyle = sp.color; ctx.fill();
+    ctx.lineWidth = 1.4; ctx.strokeStyle = INK; ctx.stroke();
+    ctx.restore();
+  }
+  ctx.globalAlpha = 1;
   // XP gems: bright mint with a soft additive glow, white rim, ink edge and a twinkle so they pop
   ctx.globalCompositeOperation = 'lighter';
   for (const o of S.orbs) {
@@ -662,6 +690,7 @@ function drawWorld() {
   if (S.hole) drawHole(S.hole);
 
   for (const e of S.enemies) drawEnemy(e);
+  drawGibs();
 
   drawLaser();
   drawPlayerShots();
@@ -709,6 +738,20 @@ function drawWorld() {
 
   if (S.warp > 0) { ctx.fillStyle = 'rgba(46,197,255,0.10)'; ctx.fillRect(0, 0, W, H); }
   if (S.whiteout > 0) { ctx.globalAlpha = S.whiteout / 0.35 * 0.85; ctx.fillStyle = PAPER; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
+}
+
+// Blood droplets: ink rims first, then colour, batched by colour
+function drawGibs() {
+  if (!S.gibs.length) return;
+  ctx.fillStyle = INK;
+  ctx.beginPath();
+  for (const g of S.gibs) { const r = g.r * (1 - g.age / g.life) + 0.9; ctx.moveTo(g.x + r, g.y); ctx.arc(g.x, g.y, r, 0, TAU); }
+  ctx.fill();
+  for (const c of Object.values(BLOOD)) {
+    ctx.fillStyle = c; ctx.beginPath();
+    for (const g of S.gibs) { if (g.color !== c) continue; const r = g.r * (1 - g.age / g.life); ctx.moveTo(g.x + r, g.y); ctx.arc(g.x, g.y, r, 0, TAU); }
+    ctx.fill();
+  }
 }
 
 // Enemy bullets: pink balls with a cream core and a fat ink rim. Batched for speed.
@@ -833,10 +876,19 @@ function drawBurst(b) {
   ctx.translate(b.x, b.y);
   ctx.rotate(b.rot);
   ctx.scale(sc, sc);
-  burstPath(b.size, b.spikes, b.x);
+  if (b.splat) splatPath(b.size * 0.85, b.seed); else burstPath(b.size, b.spikes, b.x);
   ctx.fillStyle = b.color; ctx.fill();
   ctx.lineWidth = 2.5; ctx.strokeStyle = INK; ctx.stroke();
-  if (b.word) {
+  if (b.word && b.splat) {
+    let fs = b.size * 0.5;
+    ctx.font = `${fs}px ${FONT_D}`;
+    const w = ctx.measureText(b.word).width;
+    if (w > b.size * 1.6) fs *= b.size * 1.6 / w;
+    inkText(b.word, 0, 0, fs, PAPER, 'center', FONT_D, fs * 0.22);
+  } else if (b.splat) {
+    splatPath(b.size * 0.4, b.seed + 3);
+    ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.fill();
+  } else if (b.word) {
     let fs = b.size * 0.55;
     ctx.font = `${fs}px ${FONT_D}`;
     const w = ctx.measureText(b.word).width;
