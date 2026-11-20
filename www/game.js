@@ -1,4 +1,5 @@
-// STARBURN: a vertical shooter where kills drop XP and level-ups build your loadout.
+// VOID SURVIVORS: a vertical shooter where kills drop XP and level-ups build your loadout.
+// (Internal names, the app id and the save key still say "starburn" so saves carry over.)
 // Everything lives in this one file. The TUNING block at the top is the place
 // to tweak how the game feels; you rarely need to touch anything below it.
 'use strict';
@@ -25,6 +26,7 @@ const CFG = {
   slots: { weapons: 4, passives: 4 },
   ultLevel: 10,               // level that offers a choice of ultimate (double-tap to fire)
   ultCooldownMul: 1,          // 0.5 = ultimates recharge twice as fast
+  ultCutin: 1.8,              // seconds the game freezes for the ultimate's splash screen (0 = no splash)
   signatureCooldown: 0.8,     // a ship's own weapon fires 20% faster than the same weapon picked up later (1 = no bonus)
   rarityWeights: { common: 4, uncommon: 2, rare: 1 },   // common is 2x as likely as uncommon, which is 2x rare
   shipCost: { common: 150, uncommon: 450, rare: 1000 }, // credits to unlock a ship, by its weapon's tier
@@ -456,14 +458,26 @@ const ULTS = {
 };
 const ultCooldown = id => ULTS[id].cooldown * CFG.ultCooldownMul;
 
+// Double-tap: the game freezes for a dramatic cut-in, then the ultimate fires.
 function activateUlt() {
   if (!S.ult || S.ult.cd > 0 || S.state !== 'play') return;
-  const u = ULTS[S.ult.id];
   S.ult.cd = ultCooldown(S.ult.id);
+  if (CFG.ultCutin > 0) {
+    S.state = 'cutin'; S.cutin = { t: 0, dur: CFG.ultCutin, id: S.ult.id }; S.uiLock = 99;
+    snd('cutin'); buzz([30, 40, 30]);
+  } else fireUlt(S.ult.id);
+}
+function fireUlt(id) {
+  const u = ULTS[id];
   u.fire();
   snd('ult');
   burst(W / 2, S.p.y - 90, 70, u.word, COL.gold);
   buzz([40, 30, 80]);
+}
+function finishCutin() {
+  const id = S.cutin.id;
+  S.state = 'play'; S.cutin = null; S.uiLock = 0; input.dx = input.dy = 0;
+  fireUlt(id);
 }
 
 function updateUlts(dt) {
@@ -601,6 +615,7 @@ function newGame(state) {
   S.p.hp = S.p.maxHp;
   S.p.bubble = ML('deflector') > 0;
   S.ship = curShip();
+  S.shipId = SHIPS[META.ship] ? META.ship : 'vesper';
   S.weapons[S.ship.weapon] = { lvl: 1, t: 0, on: 0, builtin: true };
   input.dx = input.dy = 0;
 }
@@ -1288,6 +1303,8 @@ function update(dt) {
   if (!S) return;
   if (S.flash && (S.flash.t -= dt) <= 0) S.flash = null;
   if (S.armed && (S.armed.t -= dt) <= 0) S.armed = null;
+  if (typeof uiTick === 'function') uiTick(dt);
+  if (S.state === 'cutin') { S.cutin.t += dt; if (S.cutin.t >= S.cutin.dur) finishCutin(); return; }
   if (S.state === 'play') gameUpdate(dt);
   else {
     S.uiLock -= dt;
@@ -1328,9 +1345,9 @@ window.addEventListener('pointerdown', e => {
     if (inRect(pt, PAUSE_BTN)) { S.state = 'paused'; S.uiLock = 0.2; return; }
     input.id = e.pointerId; input.lx = e.clientX; input.ly = e.clientY;
     input.downT = performance.now(); input.downX = e.clientX; input.downY = e.clientY;
-  } else if (S.uiLock <= 0) {
-    const b = buttonAt(pt);
-    S.uiPress = b ? b.id : null;
+  } else {
+    input.sx = e.clientX; input.sy = e.clientY;      // for swipes (the ship wheel)
+    if (S.uiLock <= 0) { const b = buttonAt(pt); S.uiPress = b ? b.id : null; }
   }
   e.preventDefault();
 }, { passive: false });
@@ -1354,6 +1371,11 @@ window.addEventListener('pointerup', e => {
       else input.lastTap = now;
     }
   }
+  if (S && S.state !== 'play' && input.sx !== undefined) {
+    const dx = e.clientX - input.sx, dy = e.clientY - input.sy;
+    input.sx = undefined;
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.3 && typeof uiSwipe === 'function' && uiSwipe(dx < 0 ? 1 : -1)) { S.uiPress = null; return; }
+  }
   if (!S || S.state === 'play' || S.uiPress == null) return;
   const id = S.uiPress;
   S.uiPress = null;
@@ -1367,6 +1389,7 @@ window.addEventListener('keydown', e => {
   const k = e.key.toLowerCase();
   keys[k] = true;
   if (!S) return;
+  if (S.state === 'hangar' && (k === 'arrowleft' || k === 'arrowright') && typeof uiSwipe === 'function') uiSwipe(k === 'arrowleft' ? -1 : 1);
   if ((k === 'escape' || k === 'p') && (S.state === 'play' || S.state === 'paused')) { if (S.state === 'play') S.state = 'paused'; else resume(); }
   if (k === 'e' && S.state === 'play') activateUlt();
   if (S.state === 'levelup' && S.uiLock <= 0) {

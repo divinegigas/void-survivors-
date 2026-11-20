@@ -1,4 +1,7 @@
-# Starburn (working title)
+# Void Survivors
+
+(Formerly "Starburn". Internal names, the Android app id `app.starburn.game` and the save key keep the
+old name so updates install over the old app and saves carry over.)
 
 A vertical space shooter for Android: your ship fires on its own, enemies come down from the top
 and shoot back, and every kill drops green XP crystals you have to fly over. Level up and pick an
@@ -9,6 +12,8 @@ This is separate from Neon Cable 42. It lives in its own folder and its own bran
 ## Files
 - `www/game.js` is the game rules. The **TUNING** block at the top holds the numbers to tweak.
 - `www/art.js` is everything you see: the pop-art comic style, menus, and the main loop.
+- `www/pilots.js` holds the 12 pilots (one per ship): names, lines, and their portraits, drawn in code
+  with three expressions each (normal, hurt, critical).
 - `www/audio.js` is everything you hear, synthesized live (no sound files): the Level 1 track
   "Hive Surf" (surf rock + 90s-shooter metal + a dash of dubstep, all original) and the sound effects.
 - `www/index.html` + `www/game.css` are the page the Android app will load.
@@ -17,8 +22,8 @@ This is separate from Neon Cable 42. It lives in its own folder and its own bran
 ## Install it on your Android phone
 Every time the game changes on this branch, GitHub builds the app by itself
 (see `.github/workflows/starburn-android.yml`).
-1. On your phone, open the repository on GitHub → **Releases** → **Starburn (latest build)**.
-2. Tap **starburn.apk** to download it, then open the download.
+1. On your phone, open the repository on GitHub → **Releases** → **Void Survivors (latest build)**.
+2. Tap **void-survivors.apk** to download it, then open the download.
 3. The first time, Android asks to allow installs from your browser: allow it, then tap **Install**.
 4. Later builds install right over the old one and keep your credits and ships.
 
@@ -50,5 +55,7 @@ Open `www/index.html` in a browser. Arrow keys or WASD move, 1/2/3 pick an upgra
 6. **Sound + polish** (done): Level 1 music, quiet sound effects with music/sound toggles,
    glowing XP gems, white outlines on enemies.
    Next feel pass: tune difficulty and effects from playtests.
-7. **Real Android app** (done): Capacitor wrapper, APK built by GitHub Actions and posted to Releases.
-8. **More content**: more levels, more bosses and enemy patterns, weapon evolutions.
+7. **Pilots + style** (done): 12 anime pilots (7 women, 5 men) with 3 expressions each, ship wheel in the
+   Hangar, pilot face in the HUD, Persona-style animated menus, dramatic ultimate cut-in, new name.
+8. **Real Android app** (done): Capacitor wrapper, APK built by GitHub Actions and posted to Releases.
+9. **More content**: more levels, more bosses and enemy patterns, weapon evolutions.

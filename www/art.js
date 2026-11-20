@@ -906,7 +906,7 @@ function drawBurst(b) {
 // HUD
 // ============================================================================
 const PAUSE_BTN = { x: W - 44, y: 14, w: 40, h: 40 };
-const ULT_POS = () => ({ x: W - 36, y: H - 46 });
+const ULT_POS = () => ({ x: W - 112, y: H - 44 });
 
 function drawSlot(x, y, def, lvl, max, builtin) {
   const s = 23;
@@ -1003,6 +1003,20 @@ function drawHud() {
       inkText('2x TAP!', x, y - r - 10, 14, COL.gold);
     } else inkText(String(Math.ceil(S.ult.cd)), x, y + 1, 16, PAPER);
   }
+  // pilot face, bottom right: calm, hurt or critical, and it flinches when you're hit
+  if (S.shipId && typeof PILOTS !== 'undefined') {
+    const fw = 66, fh = 72, shake = UIM.faceHit > 0 ? rand(-3, 3) * UIM.faceHit * 2 : 0;
+    const fx = W - fw - 10 + shake, fy = H - fh - 12;
+    const box = [fx + 8, fy, fx + fw, fy, fx + fw - 8, fy + fh, fx, fy + fh];
+    path(box.map((v, i) => v + 4)); ctx.fillStyle = INK; ctx.fill();
+    path(box); ctx.fillStyle = S.ship.color; ctx.fill();
+    ctx.save(); path(box); ctx.clip();
+    if (dotPattern) { ctx.globalAlpha = 0.25; ctx.fillStyle = dotPattern; ctx.fillRect(fx, fy, fw, fh); ctx.globalAlpha = 1; }
+    drawPilotFace(S.shipId, pilotMood(p), fx + 2, fy + 2, fw - 4, fh);
+    if (UIM.faceHit > 0) { ctx.fillStyle = `rgba(255,59,59,${UIM.faceHit})`; ctx.fillRect(fx, fy, fw, fh); }
+    ctx.restore();
+    path(box); ctx.lineWidth = 2.6; ctx.strokeStyle = INK; ctx.stroke();
+  }
   if (S.ultHint > 0) {
     const y = H * 0.62;
     panel(30, y - 22, W - 60, 44, COL.gold);
@@ -1027,15 +1041,65 @@ function drawHud() {
 }
 
 // ============================================================================
-// Menus. Buttons register themselves while drawing; game.js matches taps to them.
+// Menus. Slanted comic panels that slam in one after another, diagonal colour
+// wipes between screens. Buttons register themselves while drawing; game.js
+// matches taps to them.
 // ============================================================================
+const UIM = { key: '', t: 0, wipe: 0, idx: 0, faceHit: 0, lastHp: 0, wheelT: 1 };
+const WIPE_TIME = 0.42;
+const easeOut = x => 1 - Math.pow(1 - x, 3);
+const easeOutBack = x => { const c1 = 1.9, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); };
+const enterK = (i, delay) => easeOutBack(clamp((UIM.t - (delay === undefined ? 0.08 : delay) - i * 0.055) / 0.32, 0, 1));
+const shortest = (a, b, n) => (((a - b) % n) + n * 1.5) % n - n / 2;     // signed shortest distance on a ring
+
+// a slanted panel (parallelogram) with a hard ink drop shadow
+function slant(x, y, w, h, fill, shadow, k) {
+  k = k === undefined ? Math.min(12, h * 0.28) : k;
+  const sh = shadow === undefined ? 5 : shadow;
+  const pts = (ox, oy) => [x + k + ox, y + oy, x + w + ox, y + oy, x + w - k + ox, y + h + oy, x + ox, y + h + oy];
+  if (sh) { path(pts(sh, sh)); ctx.fillStyle = INK; ctx.fill(); }
+  path(pts(0, 0)); ctx.fillStyle = fill; ctx.fill();
+  ctx.lineJoin = 'miter'; ctx.lineWidth = 2.6; ctx.strokeStyle = INK; ctx.stroke();
+}
+function slab(pts, fill, dots) {          // a big angled colour slab
+  path(pts); ctx.fillStyle = fill; ctx.fill();
+  if (dots && dotPattern) { ctx.save(); path(pts); ctx.clip(); ctx.globalAlpha = 0.28; ctx.fillStyle = dotPattern; ctx.fillRect(0, 0, W, H); ctx.restore(); }
+  path(pts); ctx.lineWidth = 3; ctx.strokeStyle = INK; ctx.stroke();
+}
+
 let uiButtons = [];
 function addButton(id, rect, action, enabled) { uiButtons.push({ id, rect, action, enabled: enabled !== false }); }
 function drawButton(id, x, y, w, h, label, color, action, enabled) {
   const on = enabled !== false, pressed = S.uiPress === id && on, d = pressed ? 3 : 0;
-  panel(x + d, y + d, w, h, on ? color : '#5a5480', pressed ? 0 : 4);
-  inkText(label, x + w / 2 + d, y + h / 2 + 2 + d, Math.min(26, h * 0.5), on ? PAPER : '#b9b4d6');
+  const i = UIM.idx++, e = enterK(i), off = (1 - e) * (W + 60) * (i % 2 ? -1 : 1);
+  ctx.save(); ctx.translate(off + d, d);
+  slant(x, y, w, h, on ? color : '#5a5480', pressed ? 0 : 5);
+  inkText(label, x + w / 2, y + h / 2 + 2, Math.min(26, h * 0.5), on ? PAPER : '#b9b4d6');
+  ctx.restore();
   addButton(id, { x, y, w, h }, action, on);
+}
+function slamTitle(text, x, y, size, bg, fg, rot, i) {   // burst title that slams in
+  const k = clamp((UIM.t - (i || 0) * 0.05) / 0.3, 0, 1);
+  if (k <= 0) return;
+  ctx.save(); ctx.translate(x, y); const sc = 2.2 - 1.2 * easeOutBack(k); ctx.scale(sc, sc);
+  burstTitle(text, 0, 0, size, bg, fg, rot);
+  ctx.restore();
+}
+
+// --- pilot portraits on screen ----------------------------------------------
+function drawPilot(id, mood, x, y, h, silhouette, alpha) {
+  const img = pilotSprite(id, mood, h * SCALE, silhouette);
+  const w = h * 200 / 240;
+  if (alpha !== undefined) ctx.globalAlpha = alpha;
+  ctx.drawImage(img, x, y, w, h);
+  ctx.globalAlpha = 1;
+  return w;
+}
+// head-and-shoulders crop of a pilot inside a box
+function drawPilotFace(id, mood, x, y, w, h) {
+  const s = w / 120;                                // portrait units 40..160 fill the width
+  const img = pilotSprite(id, mood, 240 * s * SCALE);
+  ctx.drawImage(img, x - 40 * s, y - 34 * s, 200 * s, 240 * s);
 }
 
 function drawLevelUp() {
@@ -1044,85 +1108,100 @@ function drawLevelUp() {
   const n = S.choices.length, ch = 92, gap = 14, total = n * ch + (n - 1) * gap;
   const y0 = Math.max(170, H * 0.5 - total / 2);
   const titleY = y0 - 84;
-  burstTitle(isUlt ? 'ULTIMATE!' : 'LEVEL UP!', W / 2, titleY, 42, isUlt ? COL.red : COL.gold, isUlt ? COL.gold : PAPER);
+  slamTitle(isUlt ? 'ULTIMATE!' : 'LEVEL UP!', W / 2, titleY, 42, isUlt ? COL.red : COL.gold, isUlt ? COL.gold : PAPER);
+  const ek = easeOut(clamp(UIM.t / 0.3, 0, 1));
+  ctx.globalAlpha = ek;
   inkText(isUlt ? 'PICK YOUR SUPER MOVE' : `LEVEL ${S.choiceLevel}: CHOOSE ONE`, W / 2, titleY + 46, 15, PAPER);
   if (!isUlt) inkText(`WEAPONS ${slotWeapons().length}/${CFG.slots.weapons}  ·  PASSIVES ${Object.keys(S.passives).length}/${CFG.slots.passives}`,
                       W / 2, titleY + 64, 11, COL.dim, 'center', FONT_D, 2.5);
+  ctx.globalAlpha = 1;
 
   S.choices.forEach((c, i) => {
     const r = { x: 18, y: y0 + i * (ch + gap), w: W - 40, h: ch }, info = choiceInfo(c), pressed = S.uiPress === 'card' + i;
-    const d = pressed ? 3 : 0, rx = r.x + d, ry = r.y + d;
+    const d = pressed ? 3 : 0, rx = r.x + d, ry = r.y + d, e = enterK(i, 0.12);
     addButton('card' + i, r, () => choose(i));
-    panel(rx, ry, r.w, r.h, PAPER, pressed ? 0 : 5);
-    // tier band with icon
-    ctx.save(); roundRect(rx, ry, r.w, r.h, 5); ctx.clip();
-    ctx.fillStyle = info.color; ctx.fillRect(rx, ry, 66, r.h);
-    ctx.globalAlpha = 0.25; ctx.fillStyle = dotPattern || info.color; ctx.fillRect(rx, ry, 66, r.h); ctx.globalAlpha = 1;
+    ctx.save();
+    ctx.translate((1 - e) * W * 1.15, 0);
+    ctx.translate(rx + r.w / 2, ry + r.h / 2); ctx.rotate((i % 2 ? 1 : -1) * 0.018); ctx.translate(-(rx + r.w / 2), -(ry + r.h / 2));
+    slant(rx, ry, r.w, r.h, PAPER, pressed ? 0 : 6, 10);
+    ctx.save(); path([rx + 10, ry, rx + 76, ry, rx + 66, ry + r.h, rx, ry + r.h]); ctx.clip();
+    ctx.fillStyle = info.color; ctx.fillRect(rx, ry, 80, r.h);
+    if (dotPattern) { ctx.globalAlpha = 0.25; ctx.fillStyle = dotPattern; ctx.fillRect(rx, ry, 80, r.h); ctx.globalAlpha = 1; }
     ctx.restore();
     ctx.lineWidth = 2.5; ctx.strokeStyle = INK;
-    ctx.beginPath(); ctx.moveTo(rx + 66, ry); ctx.lineTo(rx + 66, ry + r.h); ctx.stroke();
-    const ix = rx + 33, iy = ry + r.h / 2;
+    ctx.beginPath(); ctx.moveTo(rx + 76, ry); ctx.lineTo(rx + 66, ry + r.h); ctx.stroke();
+    const ix = rx + 36, iy = ry + r.h / 2;
     ctx.fillStyle = PAPER; ctx.beginPath(); ctx.arc(ix, iy, 21, 0, TAU); ctx.fill(); ctx.stroke();
     ctx.font = '700 21px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillStyle = INK; ctx.fillText(info.glyph, ix, iy + 1);
-    // text
-    const tx = rx + 78, tw = r.w - 90;
+    const tx = rx + 82, tw = r.w - 96;
     plainText(info.tag, tx, ry + 16, 12, '#5a5480', 'left');
     if (info.tier) {
       ctx.font = `12px ${FONT_D}`;
       const pw = ctx.measureText(info.tier).width + 12;
-      roundRect(rx + r.w - pw - 8, ry + 7, pw, 18, 9);
+      roundRect(rx + r.w - pw - 12, ry + 7, pw, 18, 9);
       ctx.fillStyle = info.color; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = INK; ctx.stroke();
-      plainText(info.tier, rx + r.w - pw / 2 - 8, ry + 17, 12, INK);
+      plainText(info.tier, rx + r.w - pw / 2 - 12, ry + 17, 12, INK);
     }
     plainText(info.title, tx, ry + 37, 22, INK, 'left');
     ctx.font = `700 12.5px ${FONT_B}`;
     wrapLines(info.desc, tw).slice(0, 2).forEach((ln, k) => plainText(ln, tx, ry + 59 + k * 15, 12.5, '#2c2640', 'left', FONT_B));
+    ctx.restore();
   });
+  UIM.idx = n + 1;
   const by = y0 + total + 20;
   if (ML('reroll') > 0) drawButton('reroll', W / 2 - 80, by, 160, 42, `REROLL (${S.rerolls})`, '#ff8c1a', reroll, S.rerolls > 0);
   if (S.uiLock > 0) dim(0.2);
 }
 
+// --- Title -------------------------------------------------------------------
+function drawLogo(cx, cy) {
+  const k = clamp(UIM.t / 0.38, 0, 1), sc = 2.4 - 1.4 * easeOutBack(k);
+  ctx.save(); ctx.translate(cx, cy); ctx.scale(sc, sc); ctx.rotate(-0.07);
+  ctx.save(); ctx.scale(2.2, 1.15); burstPath(66, 16, 3); ctx.restore();
+  ctx.fillStyle = '#7b2cff'; ctx.fill(); ctx.lineWidth = 3.5; ctx.strokeStyle = INK; ctx.stroke();
+  if (dotPattern) { ctx.save(); ctx.clip(); ctx.globalAlpha = 0.3; ctx.fillStyle = dotPattern; ctx.fillRect(-200, -120, 400, 240); ctx.restore(); }
+  inkText('VOID', 5, -16, 78, INK, 'center', FONT_D, 0);
+  inkText('VOID', 0, -21, 78, COL.gold, 'center', FONT_D, 9);
+  slant(-112, 22, 224, 42, COL.red, 4, 12);
+  inkText('SURVIVORS', 0, 45, 40, PAPER, 'center', FONT_D, 6);
+  ctx.restore();
+}
+
 function drawTitle() {
-  const cy = H * 0.17;
-  // logo
-  ctx.save(); ctx.translate(W / 2, cy); ctx.rotate(-0.07);
-  ctx.save(); ctx.scale(2.3, 0.95); burstPath(70, 16, 3); ctx.restore();
-  ctx.fillStyle = COL.red; ctx.fill(); ctx.lineWidth = 3.5; ctx.strokeStyle = INK; ctx.stroke();
-  if (dotPattern) { ctx.save(); ctx.clip(); ctx.globalAlpha = 0.3; ctx.fillStyle = dotPattern; ctx.fillRect(-200, -100, 400, 200); ctx.restore(); }
-  inkText('STARBURN', 5, 5, 72, INK, 'center', FONT_D, 0);
-  inkText('STARBURN', 0, 0, 72, COL.gold, 'center', FONT_D, 9);
+  const id = S.shipId, sh = curShip(), P = PILOTS[id], wp = WEAPONS[sh.weapon];
+  // angled slab with the pilot standing behind their ship
+  const e0 = easeOut(clamp(UIM.t / 0.35, 0, 1));
+  ctx.save(); ctx.translate(-(1 - e0) * W, 0);
+  slab([0, H * 0.24, W, H * 0.30, W, H * 0.62, 0, H * 0.58], sh.color, true);
   ctx.restore();
-  ctx.save(); ctx.translate(W / 2 + 40, cy + 62); ctx.rotate(0.03);
-  panel(-110, -15, 220, 30, PAPER, 3);
-  plainText('SHOOT! SALVAGE! EVOLVE!', 0, 1, 18, INK);
+  const ph = H * 0.38, pe = easeOutBack(clamp((UIM.t - 0.1) / 0.4, 0, 1));
+  ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, H * 0.6 + 2); ctx.clip();
+  drawPilot(id, 'normal', W * 0.14 - (1 - pe) * W * 0.8, H * 0.6 - ph + 4, ph);
   ctx.restore();
+  const se = easeOutBack(clamp((UIM.t - 0.2) / 0.4, 0, 1)), sx = W * 0.73 + (1 - se) * W * 0.6, sy = H * 0.47;
+  drawFlame(sx, sy + 12 * 2, 2);
+  drawShip(sx, sy + Math.sin(performance.now() / 500) * 3, 2.1, sh);
+  // name plates
+  ctx.save(); ctx.translate((1 - se) * W, 0);
+  slant(W * 0.5, H * 0.555, W * 0.47, 30, INK, 0, 10);
+  inkText(sh.name, W * 0.74, H * 0.555 + 16, 22, sh.color, 'center', FONT_D, 4);
+  ctx.restore();
+  ctx.save(); ctx.translate(-(1 - pe) * W, 0);
+  slant(10, H * 0.612, W * 0.62, 26, PAPER, 4, 9);
+  plainText(P.name, 22, H * 0.612 + 14, 17, INK, 'left');
+  ctx.restore();
+  drawLogo(W / 2, H * 0.12);
+  if (META.notice) { slant(20, 6, W - 40, 26, COL.xp, 3, 8); plainText(META.notice, W / 2, 20, 14, INK); }
 
-  // caption box with the basics
-  if (META.notice) {
-    panel(28, cy - 66, W - 56, 28, COL.xp, 3);
-    plainText(META.notice, W / 2, cy - 51, 15, INK);
-  }
-  const by0 = cy + 100;
-  panel(28, by0, W - 56, 64, COL.gold, 4);
-  const lines = ['Drag anywhere to fly. You fire on your own.', 'Grab green gems to level up.', 'Only the white dot can be hit!'];
-  lines.forEach((l, i) => plainText(l, W / 2, by0 + 15 + i * 17, 13, INK, 'center', FONT_B));
-
-  // selected ship
-  const sh = curShip(), wp = WEAPONS[sh.weapon], sy = H * 0.52;
-  ctx.save(); ctx.translate(W / 2, sy); burstPath(46, 12, 2);
-  ctx.fillStyle = PAPER; ctx.globalAlpha = 0.12; ctx.fill(); ctx.globalAlpha = 1; ctx.restore();
-  drawFlame(W / 2, sy + 8 * 1.7, 1.7);
-  drawShip(W / 2, sy + Math.sin(performance.now() / 500) * 3, 1.7, sh);
-  inkText(sh.name, W / 2, sy + 44, 24, sh.color);
-  inkText(`${wp.name} · ${TIER[wp.tier].name}`, W / 2, sy + 66, 13, TIER[wp.tier].color, 'center', FONT_D, 3);
-
-  const by = H * 0.7;
-  drawButton('launch', 40, by, W - 80, 56, 'LAUNCH!', COL.xp, startGame);
-  drawButton('hangar', 40, by + 70, W - 80, 48, `HANGAR · ${META.bank} CR`, '#ff8c1a', openHangar);
-  drawSoundToggles(by + 128);
-  if (META.best > 0) inkText(`BEST TIME ${fmtTime(META.best)}${META.clears ? ` · CLEARS ${META.clears}` : ''}`, W / 2, by + 184, 14, COL.dim, 'center', FONT_D, 3);
+  const by = H * 0.67;
+  ctx.globalAlpha = easeOut(clamp((UIM.t - 0.3) / 0.3, 0, 1));
+  plainText('Drag to fly  ·  grab gems to level up  ·  only the white dot can be hit', W / 2, by - 6, 11, PAPER, 'center', FONT_B);
+  ctx.globalAlpha = 1;
+  drawButton('launch', 34, by + 8, W - 68, 54, 'LAUNCH!', COL.xp, startGame);
+  drawButton('hangar', 34, by + 74, W - 68, 46, `HANGAR · ${META.bank} CR`, '#ff8c1a', openHangar);
+  drawSoundToggles(by + 132);
+  if (META.best > 0) inkText(`BEST TIME ${fmtTime(META.best)}${META.clears ? ` · CLEARS ${META.clears}` : ''}`, W / 2, by + 186, 14, COL.dim, 'center', FONT_D, 3);
 }
 
 // --- Hangar ----------------------------------------------------------------
@@ -1136,18 +1215,30 @@ const isArmed = id => S.armed && S.armed.id === id;
 const blinkOn = () => Math.floor(performance.now() / 200) % 2 === 0;
 
 function drawHangar() {
-  burstTitle('HANGAR', W / 2, 34, 36, COL.gold, COL.red, -0.04);
-  inkText(`${META.bank} CR`, W / 2, 70, 20, COL.gold);
+  const e = easeOut(clamp(UIM.t / 0.3, 0, 1));
+  ctx.save(); ctx.translate(-(1 - e) * W, 0);
+  slant(-14, 10, 190, 46, COL.red, 5, 14);
+  inkText('HANGAR', 84, 35, 34, COL.gold, 'center', FONT_D, 6);
+  ctx.restore();
+  ctx.save(); ctx.translate((1 - e) * W, 0);
+  slant(W - 150, 16, 140, 34, COL.gold, 4, 10);
+  plainText(`${META.bank} CR`, W - 80, 34, 22, INK);
+  ctx.restore();
   const tw = (W - 44) / 2;
-  drawTab('tabShips', 16, 84, tw, 34, 'SHIPS', 'ships');
-  drawTab('tabUps', 28 + tw, 84, tw, 34, 'UPGRADES', 'upgrades');
-  if (hangarTab === 'ships') drawShipGrid(130, H - 78);
+  drawTab('tabShips', 16, 66, tw, 34, 'SHIPS', 'ships');
+  drawTab('tabUps', 28 + tw, 66, tw, 34, 'UPGRADES', 'upgrades');
+  if (hangarTab === 'ships') drawShipWheel(108, H - 76);
   else {
     const sh = curShip();
-    drawShip(34, 150, 1.05, sh);
-    inkText(`${sh.name} UPGRADES`, 58, 143, 20, sh.color, 'left');
-    plainText(`${sh.role.toUpperCase()} · switch ship in SHIPS`, 58, 162, 10.5, COL.dim, 'left', FONT_B);
-    drawUpgradeList(176, H - 78);
+    slant(12, 108, 64, 64, sh.color, 4, 8);
+    ctx.save(); path([12 + 8, 108, 76, 108, 76 - 8, 172, 12, 172]); ctx.clip();
+    drawPilotFace(S.shipId, 'normal', 12, 108, 64, 64);
+    ctx.restore();
+    path([12 + 8, 108, 76, 108, 76 - 8, 172, 12, 172]); ctx.lineWidth = 2.6; ctx.strokeStyle = INK; ctx.stroke();
+    inkText(`${sh.name} UPGRADES`, 86, 128, 22, sh.color, 'left');
+    plainText(`${PILOTS[S.shipId].name} · ${sh.role.toUpperCase()}`, 86, 150, 11, COL.dim, 'left', FONT_B);
+    plainText('Switch ship in SHIPS to upgrade another', 86, 165, 10, COL.dim, 'left', FONT_B);
+    drawUpgradeList(180, H - 76);
   }
   drawButton('back', 16, H - 64, tw, 48, 'BACK', '#5a5480', () => { newGame('title'); });
   drawButton('launch', 28 + tw, H - 64, tw, 48, 'LAUNCH!', COL.xp, startGame);
@@ -1155,114 +1246,182 @@ function drawHangar() {
 
 function drawTab(id, x, y, w, h, label, tab) {
   const on = hangarTab === tab;
-  panel(x, y, w, h, on ? COL.gold : '#3a3366', on ? 3 : 0);
+  slant(x, y, w, h, on ? COL.gold : '#3a3366', on ? 4 : 0, 10);
   plainText(label, x + w / 2, y + h / 2 + 1, 18, on ? INK : COL.dim);
-  addButton(id, { x, y, w, h }, () => { hangarTab = tab; S.armed = null; });
+  addButton(id, { x, y, w, h }, () => { if (hangarTab !== tab) { hangarTab = tab; S.armed = null; } });
 }
 
-function drawShipGrid(top, bottom) {
-  const ids = Object.keys(SHIPS), cols = 3, gap = 9;
-  const cw = (W - 28 - gap * (cols - 1)) / cols;
-  const chh = clamp((bottom - top - gap * 3) / 4, 82, 130);
-  ids.forEach((id, i) => {
-    const ship = SHIPS[id], wp = WEAPONS[ship.weapon], tc = TIER[wp.tier].color;
-    const owned = !!META.ships[id], sel = META.ship === id, cost = shipCost(id), afford = META.bank >= cost;
-    const r = { x: 12 + (i % cols) * (cw + gap), y: top + Math.floor(i / cols) * (chh + gap), w: cw, h: chh };
-    const pressed = S.uiPress === 's' + i, d = pressed ? 3 : 0, rx = r.x + d, ry = r.y + d;
-    const flash = S.flash && S.flash.id === id, cx = rx + r.w / 2, band = chh * 0.52;
-    panel(rx, ry, r.w, r.h, flash ? COL.gold : PAPER, pressed ? 0 : 3);
-    ctx.save(); roundRect(rx, ry, r.w, r.h, 5); ctx.clip();
-    ctx.fillStyle = owned ? tc : '#8c86ad'; ctx.fillRect(rx, ry, r.w, band);
-    if (dotPattern) { ctx.globalAlpha = 0.22; ctx.fillStyle = dotPattern; ctx.fillRect(rx, ry, r.w, band); ctx.globalAlpha = 1; }
-    ctx.restore();
-    ctx.lineWidth = 2; ctx.strokeStyle = INK;
-    ctx.beginPath(); ctx.moveTo(rx, ry + band); ctx.lineTo(rx + r.w, ry + band); ctx.stroke();
-    if (sel) { roundRect(rx - 3, ry - 3, r.w + 6, r.h + 6, 7); ctx.lineWidth = 3; ctx.strokeStyle = COL.gold; ctx.stroke(); }
-    drawShip(cx, ry + band * 0.52, 1.2, ship, !owned);
-    plainText(ship.name, cx, ry + band + (chh - band) * 0.22, 15, INK);
-    plainText(wp.name, cx, ry + band + (chh - band) * 0.48, 10.5, '#4a4470', 'center', FONT_B);
-    let label, fill, txt = INK;
-    if (owned) { label = sel ? 'FLYING' : 'OWNED'; fill = sel ? COL.xp : '#d9d4ee'; }
-    else if (isArmed(id)) { label = 'TAP AGAIN'; fill = blinkOn() ? COL.gold : PAPER; }
-    else { label = `${cost} CR`; fill = afford ? COL.gold : '#d9d4ee'; txt = afford ? INK : '#8c86ad'; }
-    const py = ry + band + (chh - band) * 0.78;
-    ctx.font = `13px ${FONT_D}`;
-    const pw = ctx.measureText(label).width + 14;
-    roundRect(cx - pw / 2, py - 9, pw, 18, 9); ctx.fillStyle = fill; ctx.fill(); ctx.lineWidth = 1.8; ctx.strokeStyle = INK; ctx.stroke();
-    plainText(label, cx, py + 1, 13, txt);
-    addButton('s' + i, r, () => {
-      if (owned) { META.ship = id; saveMeta(); S.armed = null; buzz(10); }
-      else if (!afford) buzz(20);
-      else confirmBuy(id, () => {
-        META.bank -= cost; META.ships[id] = true; META.ship = id; saveMeta();
-        S.flash = { id, t: 0.4 }; buzz(40);
-      });
-    });
+// The ship wheel: the chosen ship up front with its pilot behind; the others ride
+// around a wheel. Swipe or use the arrows. Locked ships and pilots are silhouettes.
+const SHIP_IDS = Object.keys(SHIPS);
+let wheelIdx = -1, wheelPos = 0;
+function wheelSpin(d) {
+  const n = SHIP_IDS.length;
+  wheelIdx = (wheelIdx + d + n) % n;
+  S.armed = null; UIM.wheelT = 0;
+  snd('click');
+}
+function uiSwipe(dir) {
+  if (S && S.state === 'hangar' && hangarTab === 'ships' && wheelIdx >= 0) { wheelSpin(dir); return true; }
+  return false;
+}
+
+function drawShipWheel(top, bottom) {
+  const n = SHIP_IDS.length;
+  if (wheelIdx < 0) { wheelIdx = Math.max(0, SHIP_IDS.indexOf(META.ship)); wheelPos = wheelIdx; }
+  const id = SHIP_IDS[wheelIdx], ship = SHIPS[id], P = PILOTS[id], wp = WEAPONS[ship.weapon];
+  const owned = !!META.ships[id], sel = META.ship === id, tc = TIER[wp.tier].color, cost = shipCost(id), afford = META.bank >= cost;
+  const avail = bottom - top, wheelH = avail * 0.5;
+
+  // backdrop slab in the ship's tier colour, pilot behind
+  slab([0, top + 8, W, top + wheelH * 0.05, W, top + wheelH * 0.9, 0, top + wheelH], owned ? tc : '#3a3366', true);
+  const pk = easeOutBack(clamp(UIM.wheelT / 0.32, 0, 1));
+  const ph = wheelH * 1.02;
+  ctx.save(); path([0, top + 8, W, top + wheelH * 0.05, W, top + wheelH * 0.9, 0, top + wheelH]); ctx.clip();
+  drawPilot(id, 'normal', W / 2 - ph * 0.42 - 34 + (1 - pk) * 50, top + wheelH - ph + 4, ph, !owned, 0.35 + 0.65 * pk);
+  ctx.restore();
+  if (!owned) inkText('?', W / 2 - 34, top + wheelH * 0.45, 70, '#6b6590', 'center', FONT_D, 6);
+
+  // ships around the wheel (far ones first)
+  const cy = top + wheelH * 0.8, base = Math.round(wheelPos), list = [];
+  for (let k = -3; k <= 3; k++) {
+    const i = ((base + k) % n + n) % n, off = shortest(i, wheelPos, n);
+    if (Math.abs(off) <= 2.6) list.push([i, off]);
+  }
+  list.sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+  for (const [i, off] of list) {
+    const a = off * 0.62, x = W / 2 + Math.sin(a) * W * 0.42, y = cy - (1 - Math.cos(a)) * 70;
+    const sc = Math.max(0.6, 2.2 - Math.abs(off) * 0.7), sid = SHIP_IDS[i];
+    if (Math.abs(off) < 0.5) drawFlame(x, y + 12 * sc, sc);
+    ctx.globalAlpha = Math.abs(off) < 0.5 ? 1 : 0.85;
+    drawShip(x, y + Math.sin(performance.now() / 500 + i) * 2, sc, SHIPS[sid], !META.ships[sid]);
+    ctx.globalAlpha = 1;
+  }
+  drawButton('wl', 8, cy - 26, 40, 50, '<', '#5a5480', () => wheelSpin(-1));
+  drawButton('wr', W - 48, cy - 26, 40, 50, '>', '#5a5480', () => wheelSpin(1));
+
+  // info card
+  const iy = top + wheelH + 8, ih = avail - wheelH - 66;
+  const ie = easeOutBack(clamp(UIM.wheelT / 0.3, 0, 1));
+  ctx.save(); ctx.translate((1 - ie) * 40, 0);
+  slant(10, iy, W - 20, ih, PAPER, 5, 12);
+  inkText(ship.name, 30, iy + 20, 26, owned ? ship.color : '#6b6590', 'left', FONT_D, 4);
+  ctx.font = `12px ${FONT_D}`;
+  const tier = TIER[wp.tier].name, pw = ctx.measureText(tier).width + 12;
+  roundRect(W - 30 - pw, iy + 11, pw, 18, 9); ctx.fillStyle = tc; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = INK; ctx.stroke();
+  plainText(tier, W - 30 - pw / 2, iy + 21, 12, INK);
+  plainText(owned ? `PILOT: ${P.name}` : 'PILOT: ???', 30, iy + 42, 14, '#4a4470', 'left');
+  plainText(owned ? `"${P.quote}"` : 'Unlock this ship to meet the pilot.', 30, iy + 58, 11, '#4a4470', 'left', FONT_B);
+  plainText(`${wp.name.toUpperCase()} · ${ship.role.toUpperCase()}`, 30, iy + 76, 13, INK, 'left');
+  // stats
+  const lv = META.shipLv[id] || {}, rows = [['HULL', 'hull'], ['POWER', 'dmg'], ['FIRE RATE', 'rate'], ['PICKUP', 'magnet'], ['HANDLING', 'handling']];
+  const rh = clamp((ih - 92) / rows.length, 11, 17);
+  rows.forEach(([label, stat], r) => {
+    const y = iy + 94 + r * rh, v = shipStat(stat, lv[stat] || 0, ship);
+    plainText(label, 30, y, 12, '#4a4470', 'left');
+    const bx = 112, bw = W - 112 - 70;
+    if (stat === 'hull') {
+      for (let k = 0; k < 8; k++) { heart(bx + 7 + k * 15, y, 5); ctx.fillStyle = k < v ? COL.red : '#d9d4ee'; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = INK; ctx.stroke(); }
+    } else {
+      const f = clamp((v - 0.5) / 1.0, 0.05, 1);
+      ctx.fillStyle = '#d9d4ee'; ctx.fillRect(bx, y - 4, bw, 8);
+      ctx.fillStyle = tc; ctx.fillRect(bx, y - 4, bw * f, 8);
+      ctx.lineWidth = 1.5; ctx.strokeStyle = INK; ctx.strokeRect(bx, y - 4, bw, 8);
+    }
+    plainText(fmtStat(stat, v), W - 32, y, 12, INK, 'right');
   });
+  ctx.restore();
+
+  // action
+  const ay = bottom - 54;
+  if (owned) drawButton('wsel', 40, ay, W - 80, 46, sel ? 'FLYING THIS ONE!' : 'SELECT', sel ? '#5a8a4a' : COL.xp,
+                        () => { if (!sel) { META.ship = id; saveMeta(); S.shipId = id; S.ship = ship; buzz(20); } }, !sel);
+  else if (!afford) drawButton('wbuy', 40, ay, W - 80, 46, `NEED ${cost} CR`, '#5a5480', () => {}, false);
+  else drawButton('wbuy', 40, ay, W - 80, 46, isArmed(id) ? 'TAP AGAIN TO UNLOCK' : `UNLOCK · ${cost} CR`, isArmed(id) && blinkOn() ? COL.red : '#ff8c1a',
+                  () => confirmBuy(id, () => {
+                    META.bank -= cost; META.ships[id] = true; META.ship = id; saveMeta();
+                    S.shipId = id; S.ship = ship; S.flash = { id, t: 0.4 }; UIM.wheelT = 0; buzz(40); snd('pick', wp.tier);
+                  }));
 }
 
 function drawUpgradeList(top, bottom) {
   const rowH = clamp((bottom - top) / HANGAR.length, 40, 60);
   HANGAR.forEach((h, i) => {
     const y = top + i * rowH, lv = ML(h.id), maxed = lv >= h.max, cost = hangarCost(h), afford = !maxed && META.bank >= cost;
-    const pressed = S.uiPress === 'h' + i, d = pressed ? 3 : 0;
+    const pressed = S.uiPress === 'h' + i, d = pressed ? 3 : 0, e = enterK(i, 0.04);
     const r = { x: 12, y: y + 2, w: W - 28, h: rowH - 8 };
     const flash = S.flash && S.flash.id === h.id;
-    panel(r.x + d, r.y + d, r.w, r.h, flash ? COL.gold : PAPER, pressed ? 0 : 3);
-    plainText(h.name, r.x + 10 + d, r.y + r.h * 0.32 + d, 16, INK, 'left');
-    plainText(typeof h.desc === 'function' ? h.desc(lv, maxed) : h.desc, r.x + 10 + d, r.y + r.h * 0.72 + d, 11, '#4a4470', 'left', FONT_B);
+    ctx.save(); ctx.translate((1 - e) * W + d, d);
+    slant(r.x, r.y, r.w, r.h, flash ? COL.gold : PAPER, pressed ? 0 : 4, 8);
+    plainText(h.name, r.x + 14, r.y + r.h * 0.32, 16, INK, 'left');
+    plainText(typeof h.desc === 'function' ? h.desc(lv, maxed) : h.desc, r.x + 12, r.y + r.h * 0.72, 11, '#4a4470', 'left', FONT_B);
     const pipW = Math.min(8, 60 / h.max - 2);
     for (let k = 0; k < h.max; k++) {
-      const px = r.x + r.w - 84 - h.max * (pipW + 2) + k * (pipW + 2) + d, py = r.y + r.h * 0.32 - 4 + d;
+      const px = r.x + r.w - 86 - h.max * (pipW + 2) + k * (pipW + 2), py = r.y + r.h * 0.32 - 4;
       ctx.fillStyle = k < lv ? COL.gold : '#d9d4ee'; ctx.fillRect(px, py, pipW, 8);
       ctx.lineWidth = 1.2; ctx.strokeStyle = INK; ctx.strokeRect(px, py, pipW, 8);
     }
     const armed = isArmed(h.id);
     const label = maxed ? 'MAX' : armed ? 'TAP AGAIN' : `${cost} CR`;
     ctx.font = `14px ${FONT_D}`;
-    const pw = ctx.measureText(label).width + 14, px = r.x + r.w - 8 - pw + d, py = r.y + r.h / 2 + d;
+    const pw = ctx.measureText(label).width + 14, px = r.x + r.w - 12 - pw, py = r.y + r.h / 2;
     roundRect(px, py - 10, pw, 20, 10);
     ctx.fillStyle = maxed ? '#d9d4ee' : armed ? (blinkOn() ? COL.gold : PAPER) : afford ? COL.gold : '#d9d4ee'; ctx.fill();
     ctx.lineWidth = 1.8; ctx.strokeStyle = INK; ctx.stroke();
     plainText(label, px + pw / 2, py + 1, 14, afford || armed ? INK : '#8c86ad');
+    ctx.restore();
     addButton('h' + i, r, () => (afford ? confirmBuy(h.id, () => buyHangar(h)) : buzz(20)), !maxed);
   });
 }
 
 function drawSoundToggles(y) {
   if (typeof toggleMusic !== 'function') return;
-  const w = (W - 112) / 2;
-  drawButton('music', 50, y, w, 38, `MUSIC ${PREF.music ? 'ON' : 'OFF'}`, PREF.music ? '#a45cff' : '#5a5480', toggleMusic);
-  drawButton('sound', 62 + w, y, w, 38, `SOUND ${PREF.sfx ? 'ON' : 'OFF'}`, PREF.sfx ? '#a45cff' : '#5a5480', toggleSfx);
+  const w = (W - 100) / 2;
+  drawButton('music', 44, y, w, 38, `MUSIC ${PREF.music ? 'ON' : 'OFF'}`, PREF.music ? '#a45cff' : '#5a5480', toggleMusic);
+  drawButton('sound', 56 + w, y, w, 38, `SOUND ${PREF.sfx ? 'ON' : 'OFF'}`, PREF.sfx ? '#a45cff' : '#5a5480', toggleSfx);
 }
 
 function drawPaused() {
   dim(0.65);
-  burstTitle('PAUSED', W / 2, H * 0.34, 46, COL.player, PAPER);
-  drawButton('resume', 50, H * 0.48, W - 100, 54, 'RESUME', COL.xp, resume);
-  drawButton('quit', 50, H * 0.48 + 70, W - 100, 46, 'END RUN', COL.red, () => gameOver(true));
-  drawSoundToggles(H * 0.48 + 136);
+  const e = easeOut(clamp(UIM.t / 0.3, 0, 1));
+  ctx.save(); ctx.translate(-(1 - e) * W, 0);
+  slab([0, H * 0.24, W, H * 0.2, W, H * 0.42, 0, H * 0.46], '#3a3366', true);
+  ctx.restore();
+  const ph = H * 0.24;
+  drawPilot(S.shipId, pilotMood(S.p), W * 0.58 + (1 - e) * W, H * 0.44 - ph, ph);
+  slamTitle('PAUSED', W * 0.32, H * 0.34, 44, COL.player, PAPER);
+  drawButton('resume', 44, H * 0.5, W - 88, 54, 'RESUME', COL.xp, resume);
+  drawButton('quit', 44, H * 0.5 + 68, W - 88, 46, 'END RUN', COL.red, () => gameOver(true));
+  drawSoundToggles(H * 0.5 + 128);
 }
 
 function drawGameOver() {
   dim(0.55);
   const cy = H * 0.2;
   const won = S.state === 'won';
-  burstTitle(won ? 'LEVEL CLEAR!' : S.quit ? 'RUN ENDED' : 'SHIP LOST!', W / 2, cy, 46, won ? COL.xp : S.quit ? COL.player : COL.red, COL.gold);
+  const e = easeOut(clamp(UIM.t / 0.35, 0, 1));
+  const ph = H * 0.26;
+  drawPilot(S.shipId, won ? 'normal' : 'crit', W - ph * 0.83 + 6 + (1 - e) * W, cy + 40, ph);
+  slamTitle(won ? 'LEVEL CLEAR!' : S.quit ? 'RUN ENDED' : 'SHIP LOST!', W / 2, cy, 46, won ? COL.xp : S.quit ? COL.player : COL.red, COL.gold);
   if (won) inkText('THE HIVE QUEEN IS DEAD!', W / 2, cy + 40, 16, PAPER);
   const rows = [['SURVIVED', fmtTime(S.t)], ['LEVEL', String(S.level)], ['KILLS', String(S.kills)], ['BEST', fmtTime(META.best)]];
   const py = cy + 62;
-  panel(50, py, W - 100, 22 + rows.length * 24, PAPER);
+  ctx.save(); ctx.translate(-(1 - e) * W, 0);
+  slant(24, py, W * 0.6, 22 + rows.length * 24, PAPER, 5, 12);
   rows.forEach(([k, v], i) => {
     const y = py + 22 + i * 24;
-    plainText(k, 66, y, 17, '#4a4470', 'left');
-    plainText(v, W - 66, y, 19, INK, 'right');
+    plainText(k, 44, y, 17, '#4a4470', 'left');
+    plainText(v, 24 + W * 0.6 - 22, y, 19, INK, 'right');
   });
-  const cyy = py + 22 + rows.length * 24 + 46;
-  ctx.save(); ctx.translate(W / 2, cyy); ctx.rotate(0.05);
-  burstPath(54, 14, 4); ctx.fillStyle = COL.gold; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = INK; ctx.stroke();
-  inkText(`+${S.earned} CR`, 0, 2, 30, COL.red, 'center', FONT_D, 5);
   ctx.restore();
+  const cyy = py + 22 + rows.length * 24 + 46;
+  const bk = clamp((UIM.t - 0.35) / 0.3, 0, 1);
+  if (bk > 0) {
+    ctx.save(); ctx.translate(W / 2, cyy); ctx.rotate(0.05); const sc = 2 - easeOutBack(bk); ctx.scale(sc, sc);
+    burstPath(54, 14, 4); ctx.fillStyle = COL.gold; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = INK; ctx.stroke();
+    inkText(`+${S.earned} CR`, 0, 2, 30, COL.red, 'center', FONT_D, 5);
+    ctx.restore();
+  }
   inkText(`BOUNTY BANKED · ${META.bank} CR TOTAL`, W / 2, cyy + 52, 13, PAPER, 'center', FONT_D, 3);
   if (S.newBest) inkText('NEW BEST TIME!', W / 2, cyy + 72, 16, COL.xp);
   const by = H * 0.74, on = S.uiLock <= 0;
@@ -1270,12 +1429,104 @@ function drawGameOver() {
   drawButton('hangar', 40, by + 68, W - 80, 46, 'HANGAR', '#ff8c1a', openHangar, on);
 }
 
+// --- Ultimate cut-in: the game freezes for a dramatic splash ------------------
+function drawCutin() {
+  const c = S.cutin; if (!c) return;
+  const t = c.t, D = c.dur, id = S.shipId, P = PILOTS[id], u = ULTS[c.id];
+  const out = easeOut(clamp((t - (D - 0.24)) / 0.24, 0, 1));
+  const inK = easeOut(clamp(t / 0.16, 0, 1));
+  dim(0.62 * inK * (1 - out));
+  // speed lines bursting from the middle
+  ctx.save(); ctx.globalAlpha = 0.35 * (1 - out); ctx.strokeStyle = PAPER; ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (let i = 0; i < 28; i++) { const a = i / 28 * TAU + t * 0.6, r0 = 120 + (i * 37) % 60; ctx.moveTo(W / 2 + Math.cos(a) * r0, H / 2 + Math.sin(a) * r0); ctx.lineTo(W / 2 + Math.cos(a) * 700, H / 2 + Math.sin(a) * 700); }
+  ctx.stroke(); ctx.restore();
+  // the big diagonal slab
+  ctx.save(); ctx.translate(W / 2, H * 0.52); ctx.rotate(-0.3);
+  const sx = (1 - easeOut(clamp(t / 0.22, 0, 1))) * -W * 2.2 + out * W * 2.2;
+  ctx.fillStyle = COL.gold; ctx.fillRect(sx - W * 1.5, -H * 0.2 - 12, W * 3, 12);
+  ctx.fillStyle = COL.red; ctx.fillRect(sx - W * 1.5, -H * 0.2, W * 3, H * 0.4);
+  if (dotPattern) { ctx.globalAlpha = 0.3; ctx.fillStyle = dotPattern; ctx.fillRect(sx - W * 1.5, -H * 0.2, W * 3, H * 0.4); ctx.globalAlpha = 1; }
+  ctx.fillStyle = INK; ctx.fillRect(sx - W * 1.5, H * 0.2, W * 3, 16);
+  ctx.restore();
+  // the pilot, big and tilted
+  const ph = H * 0.62, pw = ph * 200 / 240, pk = easeOutBack(clamp((t - 0.06) / 0.3, 0, 1));
+  ctx.save();
+  ctx.translate(W * 0.62 + (1 - pk) * W + out * W, H * 0.5); ctx.rotate(-0.07);
+  drawPilot(id, 'normal', -pw / 2, -ph / 2, ph);
+  ctx.restore();
+  // the eye strip across the top
+  const bandY = H * 0.11, bandH = 70, ek = easeOut(clamp((t - 0.14) / 0.2, 0, 1));
+  ctx.save(); ctx.translate(-(1 - ek) * W * 1.2 - out * W * 1.2, 0);
+  slant(-20, bandY - 6, W + 40, bandH + 12, INK, 0, 16);
+  ctx.save(); path([-4, bandY, W + 20, bandY, W + 6, bandY + bandH, -18, bandY + bandH]); ctx.clip();
+  ctx.fillStyle = PILOTS[id].skin; ctx.fillRect(0, bandY, W, bandH);
+  const eh = Math.min(240 * 3.1, 1400 / SCALE), es = eh / 240;
+  const img = pilotSprite(id, 'normal', eh * SCALE);
+  ctx.drawImage(img, W / 2 - 100 * es, bandY + bandH / 2 - 108 * es, 200 * es, eh);
+  ctx.restore();
+  ctx.restore();
+  // the move's name slams in, then the pilot's shout
+  const tk = clamp((t - 0.32) / 0.18, 0, 1);
+  if (tk > 0) {
+    ctx.save(); ctx.translate(W / 2 + out * W, H * 0.74); ctx.rotate(-0.12);
+    const sc = 2.6 - 1.6 * easeOutBack(tk); ctx.scale(sc, sc);
+    inkText(u.name.toUpperCase() + '!', 4, 4, 58, INK, 'center', FONT_D, 0);
+    inkText(u.name.toUpperCase() + '!', 0, 0, 58, COL.gold, 'center', FONT_D, 10);
+    ctx.restore();
+  }
+  const qk = easeOutBack(clamp((t - 0.55) / 0.25, 0, 1));
+  if (qk > 0) {
+    ctx.save(); ctx.translate(-(1 - qk) * W - out * W, 0);
+    ctx.font = `20px ${FONT_D}`;
+    const qw = Math.min(W - 30, ctx.measureText(P.shout).width + 40);
+    slant(14, H * 0.82, qw, 36, PAPER, 5, 10);
+    plainText(P.shout, 14 + qw / 2, H * 0.82 + 19, 20, INK);
+    plainText(P.name, 22, H * 0.82 - 10, 13, COL.gold, 'left');
+    ctx.restore();
+  }
+}
+
+// --- screen wipe between menus ------------------------------------------------
+function drawWipe() {
+  if (UIM.wipe <= 0) return;
+  const p = 1 - UIM.wipe / WIPE_TIME, cx = lerp(-W * 0.9, W * 1.9, easeOut(p));
+  const bands = [[COL.red, 150, 60], [INK, 120, -40], [COL.gold, 40, -130]];
+  for (const [c, wdt, off] of bands) {
+    const x = cx + off;
+    path([x - wdt / 2 + 120, -10, x + wdt / 2 + 120, -10, x + wdt / 2 - 120, H + 10, x - wdt / 2 - 120, H + 10]);
+    ctx.fillStyle = c; ctx.fill();
+  }
+}
+
 // ============================================================================
 // Frame
 // ============================================================================
+function uiTick(dt) {
+  if (!S) return;
+  UIM.t += dt; UIM.wheelT += dt;
+  UIM.wipe = Math.max(0, UIM.wipe - dt);
+  UIM.faceHit = Math.max(0, UIM.faceHit - dt);
+  if (S.p && S.p.hp < UIM.lastHp && S.state === 'play') UIM.faceHit = 0.5;
+  if (S.p) UIM.lastHp = S.p.hp;
+  if (wheelIdx >= 0) {
+    const n = SHIP_IDS.length, diff = shortest(wheelIdx, wheelPos, n);
+    wheelPos = ((wheelPos + diff * Math.min(1, dt * 10)) % n + n) % n;
+  }
+}
+
 function render() {
   uiButtons = [];
+  UIM.idx = 0;
   if (!bgCanvas) artResize();
+  // a new screen? restart its entrance animation (and wipe between menu screens)
+  const key = S ? S.state + (S.state === 'hangar' ? hangarTab : '') : '';
+  if (key !== UIM.key) {
+    const from = UIM.key;
+    UIM.key = key; UIM.t = 0;
+    if (S && !['play', 'levelup', 'cutin'].includes(S.state) && !(from.startsWith('play') && S.state === 'paused')) UIM.wipe = WIPE_TIME;
+    if (S && S.state !== 'hangar') wheelIdx = -1;
+  }
   drawBackground();
   let sx = 0, sy = 0;
   if (S && S.shake > 0) { sx = rand(-1, 1) * S.shake * 10; sy = rand(-1, 1) * S.shake * 10; }
@@ -1288,7 +1539,10 @@ function render() {
   else if (S.state === 'hangar') drawHangar();
   else if (S.state === 'levelup') drawLevelUp();
   else if (S.state === 'paused') drawPaused();
+  else if (S.state === 'cutin') drawCutin();
   else if (S.state === 'over' || S.state === 'won') drawGameOver();
+  ctx.setTransform(SCALE, 0, 0, SCALE, 0, 0);
+  drawWipe();
 }
 
 // ============================================================================

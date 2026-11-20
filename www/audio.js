@@ -353,6 +353,7 @@ const SFX = {
   },
   levelup: (t) => levelUpFanfare(t),
   pick:    (t, tier) => cardPick(t, tier),
+  cutin:   (t) => cutinStinger(t),
   hit:     (t) => { hiss(t, 'lowpass', 420, 0.25, 0.3); blip(t, 'square', 140, 55, 0.2, 0.08); },
   shield:  (t) => blip(t, 'sine', 1100, 2600, 0.15, 0.07),
   ult:     (t) => { const f = hiss(t, 'bandpass', 300, 0.6, 0.12, 1.5); f.frequency.exponentialRampToValueAtTime(4000, t + 0.5);
@@ -385,6 +386,21 @@ function cardPick(t, tier) {
   for (let i = 0; i < extra; i++) blip(t + 0.1 + i * 0.045, 'triangle', mf(88 + [3, 7, 10, 12, 15, 19, 22, 24, 27][i]), 0, 0.12, 0.05);
   if (tier === 'rare' || tier === 'ult') blip(t + 0.12, 'sine', mf(100), 0, 0.8, 0.05);
 }
+// ULTIMATE CUT-IN: a rising whoosh, a huge impact, then a heroic chord stab
+function cutinStinger(t) {
+  const w = hiss(t, 'bandpass', 250, 0.3, 0.16, 2); w.frequency.exponentialRampToValueAtTime(5000, t + 0.28);
+  const ti = t + 0.3;
+  blip(ti, 'sine', 150, 38, 0.6, 0.5);
+  hiss(ti, 'lowpass', 900, 0.5, 0.35);
+  crashFx(ti);
+  const filt = node('filter', { type: 'lowpass', frequency: 900, Q: 3 });
+  filt.frequency.setValueAtTime(900, ti); filt.frequency.exponentialRampToValueAtTime(5000, ti + 0.3);
+  const shaper = node('shaper', { curve: shaperCurve(30) });
+  const g = env(AUD.sfx, ti, 0.1, 0.005, 0.5, 0.5);
+  chain(filt, shaper, g);
+  for (const m of [40, 47, 52, 59, 64]) { osc('sawtooth', mf(m), ti, 1.3, filt, -7); osc('sawtooth', mf(m), ti, 1.3, filt, 7); }
+  [76, 83, 88].forEach((m, i) => blip(ti + 0.45 + i * 0.07, 'triangle', mf(m), 0, 0.4, 0.06));
+}
 function crashFx(t) { const f = node('filter', { type: 'highpass', frequency: 3000 }); f.connect(env(AUD.sfx, t, 0.15, 0.002, 0.6)); noise(t, 1.5, f); }
 
 // ============================================================================
@@ -393,7 +409,7 @@ function crashFx(t) { const f = node('filter', { type: 'highpass', frequency: 30
 let lastMusicLevel = -1, laserHum = null;
 function audioUpdate() {
   if (!AC || !S) return;
-  const level = !PREF.music ? 0 : S.state === 'paused' ? 0.12 : S.state === 'levelup' ? 0.6 : 1;
+  const level = !PREF.music ? 0 : S.state === 'paused' ? 0.12 : S.state === 'cutin' ? 0.2 : S.state === 'levelup' ? 0.6 : 1;
   if (level !== lastMusicLevel) { lastMusicLevel = level; AUD.music.gain.setTargetAtTime(MUSIC_VOL * level, AC.currentTime, 0.15); }
   AUD.sfx.gain.setTargetAtTime(PREF.sfx ? SFX_VOL : 0, AC.currentTime, 0.05);
   MUS.intense = S.state === 'play' && S.enemies.some(e => e.boss && !e.dead);
