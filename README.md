@@ -9,6 +9,8 @@ This is separate from Neon Cable 42. It lives in its own folder and its own bran
 ## Files
 - `www/game.js` is the game rules. The **TUNING** block at the top holds the numbers to tweak.
 - `www/art.js` is everything you see: the pop-art comic style, menus, and the main loop.
+- `www/audio.js` is everything you hear, synthesized live (no sound files): the Level 1 track
+  "Hive Surf" (surf rock + 90s-shooter metal + a dash of dubstep, all original) and the sound effects.
 - `www/index.html` + `www/game.css` are the page the Android app will load.
 - `artifact.html` is the same game wrapped for the shareable claude.ai link.
 
@@ -45,6 +47,8 @@ Open `www/index.html` in a browser. Arrow keys or WASD move, 1/2/3 pick an upgra
 5. **Level 1: the hive** (done): VESPER fires straight ahead (Autocannon), per-ship stats and Hangar
    upgrades (hull, power, fire rate, pickup range, handling), ships 20% bigger, organic insect-hive
    enemies, a 15-minute level with 3 mini-bosses (3:45, 7:30, 11:15) and the Hive Queen at 15:00.
-6. **Feel pass**: tune difficulty, sound effects and music, screen effects.
+6. **Sound + polish** (done): Level 1 music, quiet sound effects with music/sound toggles,
+   glowing XP gems, white outlines on enemies.
+   Next feel pass: tune difficulty and effects from playtests.
 7. **Real Android app** (done): Capacitor wrapper, APK built by GitHub Actions and posted to Releases.
 8. **More content**: more levels, more bosses and enemy patterns, weapon evolutions.

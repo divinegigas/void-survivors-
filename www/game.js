@@ -80,6 +80,9 @@ function compact(arr) {          // remove dead things without allocating a new 
   for (let i = 0; i < arr.length; i++) if (!arr[i].dead) arr[j++] = arr[i];
   arr.length = j;
 }
+// Sound hooks (audio.js). Safe no-ops if audio isn't available.
+const snd = (name, arg) => { if (typeof sfx === 'function') sfx(name, arg); };
+const music = (cmd, id) => { if (typeof musicStart !== 'function') return; cmd === 'start' ? musicStart(id) : musicStop(); };
 function buzz(ms) { try { navigator.vibrate && navigator.vibrate(ms); } catch (e) {} }
 
 const TIER = {
@@ -458,6 +461,7 @@ function activateUlt() {
   const u = ULTS[S.ult.id];
   S.ult.cd = ultCooldown(S.ult.id);
   u.fire();
+  snd('ult');
   burst(W / 2, S.p.y - 90, 70, u.word, COL.gold);
   buzz([40, 30, 80]);
 }
@@ -578,6 +582,7 @@ function xpNeed(level) {
 }
 
 function newGame(state) {
+  if (state !== 'play') music('stop');
   if (state && state !== 'title' && META.notice) { META.notice = null; saveMeta(); }   // one-time message seen
   S = {
     state: state || 'play',     // title | hangar | play | levelup | paused | over | won
@@ -837,6 +842,7 @@ function killEnemy(e) {
   S.kills++;
   const big = e.boss;
   comicKill(e, big);
+  snd(big ? 'bossDie' : 'kill', e.r);
   sparks(e.x, e.y, e.color, big ? 80 : e.type === 'gunner' ? 30 : 14);
   sparks(e.x, e.y, '#ffffff', big ? 30 : 5);
   if (big) {
@@ -889,12 +895,13 @@ function damagePlayer() {
   const p = S.p;
   if (p.invuln > 0 || S.phase > 0) return false;
   if (p.bubble) {                       // Deflector Shield soaks one hit, then recharges
-    p.bubble = false; p.bubbleT = shieldRecharge(); p.invuln = 0.6;
+    p.bubble = false; p.bubbleT = shieldRecharge(); p.invuln = 0.6; snd('shield');
     sparks(p.x, p.y, '#6bd6ff', 18); buzz(40);
     clearBulletsNear(p.x, p.y, 40);
     return true;
   }
   p.hp--;
+  snd('hit');
   p.invuln = CFG.player.invulnTime * (PL('reactive') >= 3 ? 1.5 : 1);
   if (PL('reactive')) {                 // Reactive Armor: blast on hit
     const l = PL('reactive'), r = 60 + 15 * l + (l >= 5 ? 40 : 0);
@@ -954,6 +961,7 @@ function updateParticles(dt) {
 }
 
 function levelComplete() {
+  S.won = true;
   gameOver(false);
   S.state = 'won';
   META.clears = (META.clears || 0) + 1;
@@ -963,6 +971,8 @@ function levelComplete() {
 function gameOver(quit) {
   S.state = 'over';
   S.quit = quit;
+  music('stop');
+  snd(S.won ? 'victory' : quit ? 'click' : 'gameover');
   S.uiLock = 1.0;
   S.laser = null;
   if (!quit) { sparks(S.p.x, S.p.y, COL.player, 60); sparks(S.p.x, S.p.y, COL.flame, 40); }
@@ -1041,6 +1051,7 @@ function openLevelUp() {
   S.uiLock = 0.4;      // ignore taps briefly so a lifted finger doesn't pick by accident
   S.uiPress = null;
   buzz(30);
+  snd('levelup');
 }
 
 function reroll() {
@@ -1109,7 +1120,9 @@ function gameUpdate(dt) {
   S.laser = null;
   for (const id in S.weapons) {
     S.sig = !!S.weapons[id].builtin;     // signature weapon gets CFG.signatureCooldown
-    WEAPONS[id].update(S.weapons[id], dt);
+    const w = S.weapons[id], before = w.t;
+    WEAPONS[id].update(w, dt);
+    if (w.t > before + 1e-6) snd(id);    // the weapon just fired a volley
   }
   S.sig = false;
 
@@ -1118,7 +1131,7 @@ function gameUpdate(dt) {
   if (S.ev < events.length) {
     const ev = events[S.ev];
     if (!S.warned && S.t >= ev.t - CFG.level.warnTime) {
-      S.warn = CFG.level.warnTime; S.warned = true; S.warnName = ENEMY[ev.type].name; buzz([60, 60, 60]);
+      S.warn = CFG.level.warnTime; S.warned = true; S.warnName = ENEMY[ev.type].name; buzz([60, 60, 60]); snd('warning');
     }
     if (S.t >= ev.t) { spawnBoss(ev.type); S.ev++; S.warned = false; if (ev.type === 'queen') S.queenUp = true; }
   }
@@ -1183,6 +1196,7 @@ function gameUpdate(dt) {
     if (d < 12) {
       o.dead = true;
       S.xp += o.v * S.mod.xp;
+      snd('gem');
       sparks(o.x, o.y, COL.xp, 2);
     } else if (o.y > H + 10) o.dead = true;
   }
@@ -1247,6 +1261,7 @@ function updateBullets(dt) {
 }
 
 function update(dt) {
+  if (typeof audioUpdate === 'function') audioUpdate();
   artUpdate(S && S.state === 'play' ? dt * 1.6 : dt * 0.6);
   if (!S) return;
   if (S.flash && (S.flash.t -= dt) <= 0) S.flash = null;
@@ -1279,10 +1294,12 @@ function resume() { S.state = 'play'; input.dx = input.dy = 0; }
 
 function startGame() {
   newGame('play');
+  music('start', 'level1');
   try { const el = document.documentElement; el.requestFullscreen && el.requestFullscreen().catch(() => {}); } catch (e) {}
 }
 
 window.addEventListener('pointerdown', e => {
+  if (typeof audioUnlock === 'function') audioUnlock();   // browsers only allow sound after a tap
   if (!S) return;
   const pt = toWorld(e);
   if (S.state === 'play') {
@@ -1319,11 +1336,12 @@ window.addEventListener('pointerup', e => {
   const id = S.uiPress;
   S.uiPress = null;
   const b = buttonAt(toWorld(e));
-  if (b && b.id === id && S.uiLock <= 0) b.action();
+  if (b && b.id === id && S.uiLock <= 0) { snd('click'); b.action(); }
 });
 window.addEventListener('pointercancel', e => { if (e.pointerId === input.id) input.id = null; if (S) S.uiPress = null; });
 
 window.addEventListener('keydown', e => {
+  if (typeof audioUnlock === 'function') audioUnlock();
   const k = e.key.toLowerCase();
   keys[k] = true;
   if (!S) return;

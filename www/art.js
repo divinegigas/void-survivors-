@@ -9,6 +9,14 @@ const FONT_D = '"Bangers", Impact, "Arial Black", sans-serif';           // disp
 const FONT_B = '"Comic Neue", "Trebuchet MS", "Segoe UI", sans-serif';    // small print
 const SHADE = 'rgba(20,16,31,0.36)';
 const BG = { base: '#1d1648', dotA: '#2c2270', dotB: '#3b1f66' };
+const GEM = '#8dffbf';   // XP gem mint (brighter than the UI green so it pops off the purple sky)
+const GEM_GLOW = (() => {      // soft mint glow drawn behind every gem
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const g = c.getContext('2d'), gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gr.addColorStop(0, 'rgba(141,255,191,0.75)'); gr.addColorStop(0.35, 'rgba(93,255,160,0.35)'); gr.addColorStop(1, 'rgba(93,255,160,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+  return c;
+})();
 
 // Make the browser fetch the comic fonts (canvas text alone doesn't trigger it).
 try { document.fonts.load('20px "Bangers"'); document.fonts.load('700 12px "Comic Neue"'); } catch (e) {}
@@ -104,7 +112,19 @@ function path(points) {
 // Flat colour + hard shadow (with halftone dots) on the lower right + highlight + ink outline.
 // Call with ctx already translated to the shape's centre. s = rough radius.
 function cel(pts, base, s, flash, lw) { celBuild(() => path(pts), base, s, flash, lw); }
+// OUTLINE: when true, shapes draw only a white rim (first pass), giving enemies a
+// thin white silhouette outline; the normal pass then paints over the inside.
+let OUTLINE = false;
+const OUT_W = 1.3;
 function celBuild(build, base, s, flash, lw) {
+  if (OUTLINE) {
+    build();
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = (lw || 2.4) + OUT_W * 2;
+    ctx.strokeStyle = PAPER;
+    ctx.stroke();
+    return;
+  }
   build();
   ctx.fillStyle = flash ? PAPER : base;
   ctx.fill();
@@ -340,12 +360,28 @@ function drawPlayer() {
 const EYE = '#b6ff3b', BONE = '#f3e2c7', CHITIN = '#4a2a6e';
 
 function inkLine(lw, pts) {
-  ctx.lineWidth = lw; ctx.strokeStyle = INK; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.lineWidth = OUTLINE ? lw + OUT_W * 2 : lw;
+  ctx.strokeStyle = OUTLINE ? PAPER : INK; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   ctx.beginPath(); ctx.moveTo(pts[0], pts[1]);
   for (let i = 2; i < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]);
   ctx.stroke();
 }
+function limb(pts, lw, color) {                // a thick coloured limb with an ink edge
+  if (OUTLINE) return inkLine(lw, pts);
+  inkLine(lw, pts);
+  ctx.lineWidth = lw - 3.5; ctx.strokeStyle = color;
+  ctx.beginPath(); ctx.moveTo(pts[0], pts[1]);
+  for (let i = 2; i < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]);
+  ctx.stroke();
+}
+function flat(build, fill, lw) {               // flat-filled shape with an ink edge (no shading)
+  build();
+  if (OUTLINE) { ctx.lineJoin = 'round'; ctx.lineWidth = lw + OUT_W * 2; ctx.strokeStyle = PAPER; ctx.stroke(); return; }
+  ctx.fillStyle = fill; ctx.fill();
+  ctx.lineJoin = 'round'; ctx.lineWidth = lw; ctx.strokeStyle = INK; ctx.stroke();
+}
 function eyes(list, r, color) {
+  if (OUTLINE) return;
   for (const [x, y] of list) {
     ctx.fillStyle = color || EYE;
     ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
@@ -363,10 +399,19 @@ function boneHook(x0, y0, cx, cy, x1, y1, thick, flash) {   // a curved bone cla
 }
 function tendril(x0, y0, x1, y1, wave, color, w) {
   const mx = (x0 + x1) / 2 + wave, my = (y0 + y1) / 2;
-  for (const [lw, c] of [[w + 3, INK], [w, color]]) {
+  const passes = OUTLINE ? [[w + 3 + OUT_W * 2, PAPER]] : [[w + 3, INK], [w, color]];
+  for (const [lw, c] of passes) {
     ctx.lineWidth = lw; ctx.strokeStyle = c; ctx.lineCap = 'round';
     ctx.beginPath(); ctx.moveTo(x0, y0); ctx.quadraticCurveTo(mx, my, x1 - wave * 0.5, y1); ctx.stroke();
   }
+}
+function wing(x, y, rot, sx, rx, ry, cx) {     // translucent insect wing (no white rim)
+  if (OUTLINE) return;
+  ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.scale(sx, 1);
+  ctx.globalAlpha = 0.75;
+  ctx.beginPath(); ctx.ellipse(cx, 0, rx, ry, 0, 0, TAU);
+  ctx.fillStyle = PAPER; ctx.fill(); ctx.lineWidth = 1.4; ctx.strokeStyle = INK; ctx.stroke();
+  ctx.restore();
 }
 
 const CREATURE = {
@@ -379,7 +424,7 @@ const CREATURE = {
     const o = 1.5 + 1.5 * Math.sin(t * 9);
     for (const sd of [-1, 1]) boneHook(sd * 2, 11, sd * (8 + o), 15, sd * 1.5, 20, sd * 1.5, f);
     oval(0, -2, 9, 11, 0, e.color, f, 2.2);
-    inkLine(1.4, [0, -12, 0, 7]);
+    if (!OUTLINE) inkLine(1.4, [0, -12, 0, 7]);
     oval(0, 9, 6.5, 5, 0, tone(e.color, -0.4), f, 2);
     eyes([[-2.6, 10.5], [2.6, 10.5]], 1.7);
   },
@@ -404,18 +449,13 @@ const CREATURE = {
     if (e.mode === 2) ctx.rotate(Math.atan2(e.vy, e.vx) - Math.PI / 2);
     ctx.scale(e.r / 14, e.r / 14);
     const flap = Math.abs(Math.sin(e.age * 38));
-    for (const sd of [-1, 1]) {
-      ctx.save(); ctx.translate(sd * 4, -5); ctx.rotate(sd * -0.5); ctx.scale(0.35 + 0.65 * flap, 1);
-      ctx.globalAlpha = 0.8;
-      ctx.beginPath(); ctx.ellipse(sd * 8, 0, 9, 4.5, 0, 0, TAU);
-      ctx.fillStyle = PAPER; ctx.fill(); ctx.lineWidth = 1.4; ctx.strokeStyle = INK; ctx.stroke();
-      ctx.restore();
-    }
-    ctx.globalAlpha = 1;
-    path([-2.6, 14, 2.6, 14, 0, 23]); ctx.fillStyle = INK; ctx.fill();
+    for (const sd of [-1, 1]) wing(sd * 4, -5, sd * -0.5, 0.35 + 0.65 * flap, 9, 4.5, sd * 8);
+    flat(() => path([-2.6, 14, 2.6, 14, 0, 23]), INK, 1);
     oval(0, 6, 6, 9, 0, e.color, f, 2);
-    ctx.lineWidth = 1.8; ctx.strokeStyle = INK;
-    ctx.beginPath(); ctx.moveTo(-5.6, 4); ctx.quadraticCurveTo(0, 6.5, 5.6, 4); ctx.moveTo(-4.8, 9); ctx.quadraticCurveTo(0, 11.5, 4.8, 9); ctx.stroke();
+    if (!OUTLINE) {
+      ctx.lineWidth = 1.8; ctx.strokeStyle = INK;
+      ctx.beginPath(); ctx.moveTo(-5.6, 4); ctx.quadraticCurveTo(0, 6.5, 5.6, 4); ctx.moveTo(-4.8, 9); ctx.quadraticCurveTo(0, 11.5, 4.8, 9); ctx.stroke();
+    }
     oval(0, -4, 4.5, 4, 0, tone(e.color, -0.3), f, 2);
     oval(0, -10.5, 4.5, 4, 0, tone(e.color, -0.5), f, 2);
     eyes([[-2, -11.5], [2, -11.5]], 1.6);
@@ -425,11 +465,11 @@ const CREATURE = {
     ctx.scale(e.r / 24, e.r / 24);
     for (let i = 0; i < 8; i++) {
       const a = (i / 8) * TAU + 0.2, c = Math.cos(a), sn = Math.sin(a);
-      path([c * 17 - sn * 3.5, sn * 17 + c * 3.5, c * 28, sn * 28, c * 17 + sn * 3.5, sn * 17 - c * 3.5]);
-      ctx.fillStyle = BONE; ctx.fill(); ctx.lineWidth = 1.6; ctx.strokeStyle = INK; ctx.stroke();
+      flat(() => path([c * 17 - sn * 3.5, sn * 17 + c * 3.5, c * 28, sn * 28, c * 17 + sn * 3.5, sn * 17 - c * 3.5]), f ? PAPER : BONE, 1.6);
     }
     const pulse = 1 + 0.05 * Math.sin(e.age * 5);
     ctx.save(); ctx.scale(pulse, pulse); oval(0, 0, 20, 19, 0, e.color, f, 2.4); ctx.restore();
+    if (OUTLINE) return;
     for (const j of [-1, 0, 1]) oval(j * 9, -9 + Math.abs(j) * 3, 7, 5, j * 0.4, CHITIN, f, 1.8);
     const open = e.mode === 1 && e.fireT < 0.5 ? 1 - e.fireT / 0.5 : 0.15;
     ctx.fillStyle = INK; ctx.beginPath(); ctx.ellipse(0, 11, 7, 2 + 5 * open, 0, 0, TAU); ctx.fill();
@@ -452,7 +492,7 @@ const CREATURE = {
         ctx.ellipse(sd * 1, -6, 30, 32, 0, sd < 0 ? Math.PI / 2 : -Math.PI / 2, sd < 0 ? Math.PI * 1.5 : Math.PI / 2);
         ctx.closePath();
       }, e.color, 32, f, 3);
-      for (const [sx, sy, sr] of [[16, -18, 4], [20, -2, 3], [13, 10, 3.5]]) {
+      if (!OUTLINE) for (const [sx, sy, sr] of [[16, -18, 4], [20, -2, 3], [13, 10, 3.5]]) {
         ctx.fillStyle = f ? PAPER : BONE; ctx.globalAlpha = 0.85;
         ctx.beginPath(); ctx.arc(sd * sx, sy, sr, 0, TAU); ctx.fill(); ctx.globalAlpha = 1;
       }
@@ -473,25 +513,19 @@ const CREATURE = {
   stalker(e, f) {                     // SCYTHE STALKER: mantis, bone scythes raised to strike
     ctx.scale(e.r / 42, e.r / 42);
     const flick = Math.sin(e.age * 30) * 0.1;
-    for (const sd of [-1, 1]) {
-      ctx.save(); ctx.translate(sd * 6, -18); ctx.rotate(sd * (0.6 + flick));
-      ctx.globalAlpha = 0.7; ctx.beginPath(); ctx.ellipse(sd * 14, 0, 18, 6, 0, 0, TAU);
-      ctx.fillStyle = PAPER; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = INK; ctx.stroke();
-      ctx.restore();
-    }
-    ctx.globalAlpha = 1;
+    for (const sd of [-1, 1]) wing(sd * 6, -18, sd * (0.6 + flick), 1, 18, 6, sd * 14);
     oval(0, -22, 12, 22, 0, tone(e.color, -0.25), f, 2.4);
-    inkLine(1.6, [-10, -26, 10, -26]); inkLine(1.6, [-11, -16, 11, -16]);
+    if (!OUTLINE) { inkLine(1.6, [-10, -26, 10, -26]); inkLine(1.6, [-11, -16, 11, -16]); }
     const raise = e.mode === 2 ? 0.9 : 0.35 + Math.sin(e.spin || 0) * 0.35;
     for (const sd of [-1, 1]) {
       ctx.save(); ctx.translate(sd * 8, 4); ctx.rotate(-sd * raise);
-      for (const [lw, c] of [[8, INK], [4.5, e.color]]) { ctx.lineWidth = lw; ctx.strokeStyle = c; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(sd * 20, 14); ctx.stroke(); }
+      limb([0, 0, sd * 20, 14], 8, e.color);
       boneHook(sd * 20, 14, sd * 44, 4, sd * 34, 44, sd * 5, f);
       ctx.restore();
     }
     oval(0, 4, 7, 14, 0, e.color, f, 2.2);
     celBuild(() => path([-15, 16, 15, 16, 0, 34]), e.color, 16, f, 2.4);
-    oval(-8, 19, 5.5, 4.5, -0.3, EYE, f, 1.6); oval(8, 19, 5.5, 4.5, 0.3, EYE, f, 1.6);
+    if (!OUTLINE) { oval(-8, 19, 5.5, 4.5, -0.3, EYE, f, 1.6); oval(8, 19, 5.5, 4.5, 0.3, EYE, f, 1.6); }
   },
 
   queen(e, f) {                       // HIVE QUEEN: crowned brood-mother, four bone scythes
@@ -502,19 +536,21 @@ const CREATURE = {
       tendril(sd * (20 + k * 10), -40 + k * 12, sd * (62 + k * 6), -70 + k * 22, Math.sin(t * 2.5 + i) * 10, tone(e.color, 0.25), 3.5);
     }
     oval(0, -34, 46, 40, 0, tone(e.color, -0.15), f, 3.2);
-    ctx.lineWidth = 2; ctx.strokeStyle = INK;
-    for (const yy of [-52, -38, -24]) { ctx.beginPath(); ctx.moveTo(-38, yy); ctx.quadraticCurveTo(0, yy + 10, 38, yy); ctx.stroke(); }
-    [[-18, -44], [16, -46], [-6, -30], [22, -28]].forEach(([x, y], i) => {
-      const g = 4.5 + Math.sin(t * 5 + i) * 1.2; oval(x, y, g, g, 0, '#ff9ad1', f, 1.4);
-    });
+    if (!OUTLINE) {
+      ctx.lineWidth = 2; ctx.strokeStyle = INK;
+      for (const yy of [-52, -38, -24]) { ctx.beginPath(); ctx.moveTo(-38, yy); ctx.quadraticCurveTo(0, yy + 10, 38, yy); ctx.stroke(); }
+      [[-18, -44], [16, -46], [-6, -30], [22, -28]].forEach(([x, y], i) => {
+        const g = 4.5 + Math.sin(t * 5 + i) * 1.2; oval(x, y, g, g, 0, '#ff9ad1', f, 1.4);
+      });
+    }
     for (const sd of [-1, 1]) for (let j = 0; j < 2; j++) {
       const sw = Math.sin(t * 3 + j * 1.5 + sd) * 4;
-      const bx = sd * 28, by = 2 + j * 14, ex = sd * (58 + j * 6), ey = 8 + j * 18 + sw;
-      for (const [lw, c] of [[8, INK], [4.5, e.color]]) { ctx.lineWidth = lw; ctx.strokeStyle = c; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(ex, ey); ctx.stroke(); }
+      const ex = sd * (58 + j * 6), ey = 8 + j * 18 + sw;
+      limb([sd * 28, 2 + j * 14, ex, ey], 8, e.color);
       boneHook(ex, ey, ex + sd * 14, ey + 20, ex - sd * 6, ey + 42, sd * 5, f);
     }
     for (const [x0, y0, x1, y1] of [[-30, 0, -50, -14], [-22, -6, -40, -28], [30, 0, 50, -14], [22, -6, 40, -28]]) {
-      path([x0 - 4, y0, x1, y1, x0 + 4, y0 - 4]); ctx.fillStyle = f ? PAPER : BONE; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = INK; ctx.stroke();
+      flat(() => path([x0 - 4, y0, x1, y1, x0 + 4, y0 - 4]), f ? PAPER : BONE, 2);
     }
     celBuild(() => path([-34, 4, -20, -8, 0, -12, 20, -8, 34, 4, 24, 30, 0, 40, -24, 30]), e.color, 36, f, 3);
     const o = 3 + 3 * Math.sin(t * 5);
@@ -524,9 +560,15 @@ const CREATURE = {
 };
 
 function drawEnemy(e) {
-  ctx.save();
-  ctx.translate(e.x, e.y);
-  (CREATURE[e.type] || CREATURE.drone)(e, e.flash > 0);
+  const draw = CREATURE[e.type] || CREATURE.drone, flash = e.flash > 0;
+  // pass 1: thin white rim around the silhouette; pass 2: the creature itself
+  ctx.save(); ctx.translate(e.x, e.y);
+  OUTLINE = true; ctx.globalAlpha = 0.9;
+  draw(e, flash);
+  OUTLINE = false; ctx.globalAlpha = 1;
+  ctx.restore();
+  ctx.save(); ctx.translate(e.x, e.y);
+  draw(e, flash);
   ctx.restore();
   if (e.type === 'gunner') {              // small health bar over Spitters
     ctx.fillStyle = INK; ctx.fillRect(e.x - 19, e.y - e.r - 12, 38, 6);
@@ -538,11 +580,25 @@ function drawEnemy(e) {
 // World
 // ============================================================================
 function drawWorld() {
-  // XP crystals: green gems
+  // XP gems: bright mint with a soft additive glow, white rim, ink edge and a twinkle so they pop
+  ctx.globalCompositeOperation = 'lighter';
   for (const o of S.orbs) {
-    const s = (o.v >= 5 ? 7 : 4.5) * (1 + 0.08 * Math.sin(o.age * 8));
+    const g = (o.v >= 5 ? 20 : 14) * (1 + 0.15 * Math.sin(o.age * 6));
+    ctx.drawImage(GEM_GLOW, o.x - g, o.y - g, g * 2, g * 2);
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  for (const o of S.orbs) {
+    const s = (o.v >= 5 ? 8.5 : 5.8) * (1 + 0.1 * Math.sin(o.age * 8));
+    const gem = [0, -s, s * 0.72, 0, 0, s, -s * 0.72, 0];
     ctx.save(); ctx.translate(o.x, o.y);
-    cel([0, -s, s * 0.72, 0, 0, s, -s * 0.72, 0], COL.xp, s, false, 1.6);
+    path(gem); ctx.lineJoin = 'round';
+    ctx.lineWidth = 4.2; ctx.strokeStyle = PAPER; ctx.stroke();          // white rim
+    ctx.fillStyle = GEM; ctx.fill();
+    path([0, -s, s * 0.72, 0, 0, s]); ctx.fillStyle = 'rgba(20,16,31,0.14)'; ctx.fill();   // cel shade, right half
+    path(gem); ctx.lineWidth = 1.5; ctx.strokeStyle = INK; ctx.stroke();
+    ctx.fillStyle = PAPER; path([0, -s * 0.75, -s * 0.3, -s * 0.05, 0, 0]); ctx.fill();   // facet glint
+    const tw = Math.sin(o.age * 5 + o.x);
+    if (tw > 0.6) sparkle(s * 0.6, -s * 0.65, (tw - 0.6) * 4);
     ctx.restore();
   }
 
@@ -956,7 +1012,8 @@ function drawTitle() {
   const by = H * 0.7;
   drawButton('launch', 40, by, W - 80, 56, 'LAUNCH!', COL.xp, startGame);
   drawButton('hangar', 40, by + 70, W - 80, 48, `HANGAR · ${META.bank} CR`, '#ff8c1a', openHangar);
-  if (META.best > 0) inkText(`BEST TIME ${fmtTime(META.best)}`, W / 2, by + 138, 14, COL.dim, 'center', FONT_D, 3);
+  drawSoundToggles(by + 128);
+  if (META.best > 0) inkText(`BEST TIME ${fmtTime(META.best)}${META.clears ? ` · CLEARS ${META.clears}` : ''}`, W / 2, by + 184, 14, COL.dim, 'center', FONT_D, 3);
 }
 
 // --- Hangar ----------------------------------------------------------------
@@ -1063,11 +1120,19 @@ function drawUpgradeList(top, bottom) {
   });
 }
 
+function drawSoundToggles(y) {
+  if (typeof toggleMusic !== 'function') return;
+  const w = (W - 112) / 2;
+  drawButton('music', 50, y, w, 38, `MUSIC ${PREF.music ? 'ON' : 'OFF'}`, PREF.music ? '#a45cff' : '#5a5480', toggleMusic);
+  drawButton('sound', 62 + w, y, w, 38, `SOUND ${PREF.sfx ? 'ON' : 'OFF'}`, PREF.sfx ? '#a45cff' : '#5a5480', toggleSfx);
+}
+
 function drawPaused() {
   dim(0.65);
   burstTitle('PAUSED', W / 2, H * 0.34, 46, COL.player, PAPER);
   drawButton('resume', 50, H * 0.48, W - 100, 54, 'RESUME', COL.xp, resume);
   drawButton('quit', 50, H * 0.48 + 70, W - 100, 46, 'END RUN', COL.red, () => gameOver(true));
+  drawSoundToggles(H * 0.48 + 136);
 }
 
 function drawGameOver() {
