@@ -51,7 +51,7 @@ const CFG = {
 
   level: {
     length: 900,              // 15:00: the clock stops and the Hive Queen arrives
-    miniBosses: [225, 450, 675],  // 3:45 Brood Brute, 7:30 Spore Mother, 11:15 Scythe Stalker
+    miniBosses: [225, 450, 675],  // 3:45 Brood Brute, 7:30 Spore Mother, 11:15 Scythe Wraith
     warnTime: 3,              // seconds of WARNING before each boss
   },
 
@@ -609,14 +609,14 @@ function newGame(state) {
 // ============================================================================
 // The hive fleet. r = hit size (20% bigger than before). Bosses don't leave the screen.
 const ENEMY = {
-  drone:   { name: 'Mite',           hp: 20,   r: 14, xp: 1,  credits: 1,   color: '#b84dff' },
-  weaver:  { name: 'Wriggler',       hp: 14,   r: 13, xp: 1,  credits: 1,   color: '#ff5fa2' },
-  diver:   { name: 'Stinger',        hp: 26,   r: 14, xp: 2,  credits: 1,   color: '#ffb21a' },
-  gunner:  { name: 'Spitter',        hp: 120,  r: 24, xp: 6,  credits: 3,   color: '#e53950' },
-  brute:   { name: 'BROOD BRUTE',    hp: 2200, r: 44, xp: 25, credits: 40,  color: '#8a4dff', boss: true },
-  mother:  { name: 'SPORE MOTHER',   hp: 3600, r: 48, xp: 30, credits: 60,  color: '#3fbf9a', boss: true },
-  stalker: { name: 'SCYTHE STALKER', hp: 5200, r: 42, xp: 35, credits: 80,  color: '#ff7a2f', boss: true },
-  queen:   { name: 'HIVE QUEEN',     hp: 11000, r: 66, xp: 0,  credits: 300, color: '#d81b60', boss: true },
+  drone:   { name: 'Larva',          hp: 20,   r: 14, xp: 1,  credits: 1,   color: '#eaa0ad' },
+  weaver:  { name: 'Lamprey',        hp: 14,   r: 13, xp: 1,  credits: 1,   color: '#e2607f' },
+  diver:   { name: 'Flayer',         hp: 26,   r: 14, xp: 2,  credits: 1,   color: '#9b4dcc' },
+  gunner:  { name: 'Bloater',        hp: 120,  r: 24, xp: 6,  credits: 3,   color: '#cfc04a' },
+  brute:   { name: 'BROOD BRUTE',    hp: 2200, r: 44, xp: 25, credits: 40,  color: '#6d3a8f', boss: true },
+  mother:  { name: 'SPORE MOTHER',   hp: 3600, r: 48, xp: 30, credits: 60,  color: '#62b39a', boss: true },
+  stalker: { name: 'SCYTHE WRAITH',  hp: 5200, r: 42, xp: 35, credits: 80,  color: '#d8ccb4', boss: true },
+  queen:   { name: 'HIVE QUEEN',     hp: 11000, r: 66, xp: 0,  credits: 300, color: '#b0203a', boss: true },
 };
 const LEVEL_EVENTS = () => [
   ...CFG.level.miniBosses.map((t, i) => ({ t, type: ['brute', 'mother', 'stalker'][i] })),
@@ -1064,6 +1064,8 @@ function reroll() {
 function choose(i) {
   const c = S.choices && S.choices[i];
   if (!c) return;
+  const d = WEAPONS[c.id] || PASSIVES[c.id];
+  snd('pick', c.kind === 'ult' ? 'ult' : d ? d.tier : 'common');
   const p = S.p;
   switch (c.kind) {
     case 'wnew': S.weapons[c.id] = { lvl: 1, t: 0, on: 0 }; break;

@@ -355,21 +355,15 @@ function drawPlayer() {
 // ============================================================================
 // Enemies
 // ============================================================================
-// The hive fleet: organic, insect-like creatures (original designs). Each faces
-// down the screen. Bio colours, bone claws, acid-green eyes, same ink + cel look.
-const EYE = '#b6ff3b', BONE = '#f3e2c7', CHITIN = '#4a2a6e';
+// The hive fleet: legless horror-bugs (original designs). Fleshy larvae with
+// lamprey mouths, bloated sacs crawling with eyes that track your ship, torn
+// membrane wings, dripping slime. Each faces down the screen, same ink + cel look.
+const EYE = '#c6ff3b', BONE = '#efe2c4', GORE = '#a3172f', PUS = '#efd98a', SLIME = '#c9e14a', BRUISE = '#5b2a6e', MAW = '#1d0812';
+let LOOK = 0;          // angle from the creature being drawn to the player (eyes follow you)
 
 function inkLine(lw, pts) {
   ctx.lineWidth = OUTLINE ? lw + OUT_W * 2 : lw;
   ctx.strokeStyle = OUTLINE ? PAPER : INK; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-  ctx.beginPath(); ctx.moveTo(pts[0], pts[1]);
-  for (let i = 2; i < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]);
-  ctx.stroke();
-}
-function limb(pts, lw, color) {                // a thick coloured limb with an ink edge
-  if (OUTLINE) return inkLine(lw, pts);
-  inkLine(lw, pts);
-  ctx.lineWidth = lw - 3.5; ctx.strokeStyle = color;
   ctx.beginPath(); ctx.moveTo(pts[0], pts[1]);
   for (let i = 2; i < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]);
   ctx.stroke();
@@ -380,16 +374,7 @@ function flat(build, fill, lw) {               // flat-filled shape with an ink 
   ctx.fillStyle = fill; ctx.fill();
   ctx.lineJoin = 'round'; ctx.lineWidth = lw; ctx.strokeStyle = INK; ctx.stroke();
 }
-function eyes(list, r, color) {
-  if (OUTLINE) return;
-  for (const [x, y] of list) {
-    ctx.fillStyle = color || EYE;
-    ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
-    ctx.lineWidth = 1.2; ctx.strokeStyle = INK; ctx.stroke();
-    ctx.fillStyle = PAPER; ctx.beginPath(); ctx.arc(x - r * 0.3, y - r * 0.3, r * 0.35, 0, TAU); ctx.fill();
-  }
-}
-function boneHook(x0, y0, cx, cy, x1, y1, thick, flash) {   // a curved bone claw / mandible
+function boneHook(x0, y0, cx, cy, x1, y1, thick, flash) {   // curved bone blade / horn
   celBuild(() => {
     ctx.beginPath(); ctx.moveTo(x0, y0);
     ctx.quadraticCurveTo(cx, cy, x1, y1);
@@ -397,7 +382,7 @@ function boneHook(x0, y0, cx, cy, x1, y1, thick, flash) {   // a curved bone cla
     ctx.closePath();
   }, BONE, 8, flash, 1.8);
 }
-function tendril(x0, y0, x1, y1, wave, color, w) {
+function tendril(x0, y0, x1, y1, wave, color, w) {   // a drooping fleshy tentacle
   const mx = (x0 + x1) / 2 + wave, my = (y0 + y1) / 2;
   const passes = OUTLINE ? [[w + 3 + OUT_W * 2, PAPER]] : [[w + 3, INK], [w, color]];
   for (const [lw, c] of passes) {
@@ -405,162 +390,234 @@ function tendril(x0, y0, x1, y1, wave, color, w) {
     ctx.beginPath(); ctx.moveTo(x0, y0); ctx.quadraticCurveTo(mx, my, x1 - wave * 0.5, y1); ctx.stroke();
   }
 }
-function wing(x, y, rot, sx, rx, ry, cx) {     // translucent insect wing (no white rim)
+// a toothed lamprey mouth: gum ring, black throat, a ring of bone teeth
+function maw(cx, cy, rx, ry, n, open) {
   if (OUTLINE) return;
-  ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.scale(sx, 1);
-  ctx.globalAlpha = 0.75;
-  ctx.beginPath(); ctx.ellipse(cx, 0, rx, ry, 0, 0, TAU);
-  ctx.fillStyle = PAPER; ctx.fill(); ctx.lineWidth = 1.4; ctx.strokeStyle = INK; ctx.stroke();
+  ry = Math.max(1.2, ry * (open === undefined ? 1 : open));
+  ctx.save(); ctx.translate(cx, cy);
+  ctx.beginPath(); ctx.ellipse(0, 0, rx, ry, 0, 0, TAU);
+  ctx.fillStyle = GORE; ctx.fill(); ctx.lineWidth = 1.6; ctx.strokeStyle = INK; ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(0, 0, rx * 0.68, ry * 0.68, 0, 0, TAU); ctx.fillStyle = MAW; ctx.fill();
+  ctx.beginPath();
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * TAU, c = Math.cos(a), sn = Math.sin(a), w = 0.32;
+    ctx.moveTo(Math.cos(a - w) * rx * 0.9, Math.sin(a - w) * ry * 0.9);
+    ctx.lineTo(c * rx * 0.35, sn * ry * 0.35);
+    ctx.lineTo(Math.cos(a + w) * rx * 0.9, Math.sin(a + w) * ry * 0.9);
+  }
+  ctx.fillStyle = BONE; ctx.fill(); ctx.lineWidth = 0.8; ctx.strokeStyle = INK; ctx.stroke();
+  ctx.restore();
+}
+// a wet eyeball that tracks the player and blinks now and then
+function eyeball(x, y, r, iris, t, angry) {
+  if (OUTLINE) return;
+  ctx.beginPath(); ctx.arc(x, y, r, 0, TAU);
+  ctx.fillStyle = '#f6edd2'; ctx.fill(); ctx.lineWidth = Math.max(1, r * 0.28); ctx.strokeStyle = INK; ctx.stroke();
+  if (Math.sin(t * 1.7 + x * 3.1 + y) > 0.97) {           // blink
+    ctx.fillStyle = BRUISE; ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill(); ctx.stroke();
+    inkLine(1, [x - r, y, x + r, y]);
+    return;
+  }
+  const ix = x + Math.cos(LOOK) * r * 0.35, iy = y + Math.sin(LOOK) * r * 0.35;
+  ctx.fillStyle = angry ? COL.red : iris || EYE;
+  ctx.beginPath(); ctx.arc(ix, iy, r * 0.62, 0, TAU); ctx.fill();
+  ctx.fillStyle = INK; ctx.beginPath(); ctx.ellipse(ix, iy, r * 0.16, r * 0.5, 0, 0, TAU); ctx.fill();
+  ctx.fillStyle = PAPER; ctx.beginPath(); ctx.arc(ix - r * 0.25, iy - r * 0.3, r * 0.17, 0, TAU); ctx.fill();
+}
+// slime drool: a drop stretches, falls, repeats
+function drip(x, y, t, seed, size) {
+  if (OUTLINE) return;
+  const ph = (t * 0.7 + seed * 0.37) % 1, s = size || 1;
+  const len = (2 + ph * 9) * s, r = (1.2 + ph * 0.8) * s;
+  ctx.fillStyle = SLIME; ctx.strokeStyle = INK; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(x - r * 0.6, y); ctx.quadraticCurveTo(x, y + len * 0.4, x - r, y + len);
+  ctx.arc(x, y + len, r, Math.PI, 0, true); ctx.quadraticCurveTo(x, y + len * 0.4, x + r * 0.6, y);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+}
+function veins(list) {                          // dark red veins over flesh
+  if (OUTLINE) return;
+  ctx.strokeStyle = GORE; ctx.lineWidth = 1.2; ctx.lineCap = 'round'; ctx.globalAlpha *= 0.85;
+  ctx.beginPath();
+  for (const v of list) { ctx.moveTo(v[0], v[1]); ctx.quadraticCurveTo(v[2], v[3], v[4], v[5]); }
+  ctx.stroke(); ctx.globalAlpha /= 0.85;
+}
+function eggs(list, t) {                        // glowing eggs seen through the skin
+  if (OUTLINE) return;
+  list.forEach(([x, y, r], i) => {
+    const g = r * (1 + 0.1 * Math.sin(t * 4 + i * 1.3));
+    ctx.fillStyle = PUS; ctx.globalAlpha *= 0.8;
+    ctx.beginPath(); ctx.ellipse(x, y, g, g * 1.25, 0, 0, TAU); ctx.fill();
+    ctx.globalAlpha /= 0.8;
+    ctx.lineWidth = 1.2; ctx.strokeStyle = INK; ctx.stroke();
+    ctx.fillStyle = '#8a5a1a'; ctx.beginPath(); ctx.arc(x, y + g * 0.2, g * 0.35, 0, TAU); ctx.fill();
+  });
+}
+function membrane(x, y, rot, len, wid, flap) {   // torn translucent wing (no white rim)
+  if (OUTLINE) return;
+  ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.scale(1, flap);
+  ctx.globalAlpha *= 0.6;
+  ctx.beginPath(); ctx.moveTo(0, 0);
+  ctx.quadraticCurveTo(len * 0.5, -wid, len, -wid * 0.3);
+  ctx.lineTo(len * 0.86, 0); ctx.lineTo(len * 0.95, wid * 0.25); ctx.lineTo(len * 0.7, wid * 0.2);
+  ctx.lineTo(len * 0.62, wid * 0.55); ctx.lineTo(len * 0.4, wid * 0.35);
+  ctx.quadraticCurveTo(len * 0.2, wid * 0.5, 0, 0);
+  ctx.fillStyle = '#e9dfe8'; ctx.fill();
+  ctx.globalAlpha /= 0.6;
+  ctx.lineWidth = 1.3; ctx.strokeStyle = INK; ctx.stroke();
+  ctx.lineWidth = 0.8; ctx.beginPath();
+  ctx.moveTo(0, 0); ctx.lineTo(len * 0.9, -wid * 0.35); ctx.moveTo(len * 0.3, -wid * 0.2); ctx.lineTo(len * 0.55, wid * 0.3);
+  ctx.stroke();
   ctx.restore();
 }
 
 const CREATURE = {
-  drone(e, f) {                       // MITE: little beetle, scuttling legs, snapping mandibles
-    const t = e.age; ctx.scale(e.r / 14, e.r / 14);
-    for (let i = 0; i < 3; i++) for (const sd of [-1, 1]) {
-      const w = Math.sin(t * 16 + i * 2.1 + sd) * 2.5, by = -5 + i * 5;
-      inkLine(2.2, [sd * 6, by, sd * 12, by - 3 + w, sd * 16, by + 3 + w]);
+  drone(e, f) {                       // LARVA: pulsing maggot, lamprey mouth, drool
+    const t = e.age, p = Math.sin(t * 6); ctx.scale(e.r / 14, e.r / 14);
+    oval(0, -9, 6 + p * 0.5, 5.5, 0, tone(e.color, -0.18), f, 2);
+    oval(0, -2, 8.5 - p * 0.4, 6.5, 0, e.color, f, 2.2);
+    oval(0, 6, 9, 7.5 + p * 0.4, 0, tone(e.color, 0.12), f, 2.2);
+    if (!OUTLINE) {
+      ctx.fillStyle = BRUISE; ctx.globalAlpha = 0.5;
+      for (const [x, y, r] of [[-4, -3, 2], [3, -8, 1.5], [5, 1, 1.6]]) { ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill(); }
+      ctx.globalAlpha = 1;
     }
-    const o = 1.5 + 1.5 * Math.sin(t * 9);
-    for (const sd of [-1, 1]) boneHook(sd * 2, 11, sd * (8 + o), 15, sd * 1.5, 20, sd * 1.5, f);
-    oval(0, -2, 9, 11, 0, e.color, f, 2.2);
-    if (!OUTLINE) inkLine(1.4, [0, -12, 0, 7]);
-    oval(0, 9, 6.5, 5, 0, tone(e.color, -0.4), f, 2);
-    eyes([[-2.6, 10.5], [2.6, 10.5]], 1.7);
+    maw(0, 9, 5.2, 3.6, 7, 0.6 + 0.4 * Math.abs(Math.sin(t * 5)));
+    eyeball(-5.5, 3, 1.9, EYE, t); eyeball(5, 1.5, 1.5, EYE, t); eyeball(1.5, -3.5, 1.2, EYE, t);
+    drip(0, 12.5, t, e.x, 0.8);
   },
 
-  weaver(e, f) {                      // WRIGGLER: segmented worm whipping side to side
+  weaver(e, f) {                      // LAMPREY: segmented flesh-worm, round toothed head
     const segs = 5, gap = 0.09;
     for (let k = segs - 1; k >= 1; k--) {
       const tt = e.age - k * gap;
       const wx = (e.bx !== undefined ? e.bx + Math.sin(tt * 2.4 + e.ph) * e.amp : e.x) - e.x;
-      const wy = -k * gap * (e.vy || 110), rr = e.r * (0.78 - k * 0.09);
-      inkLine(1.8, [wx - rr - 3, wy + 2, wx + rr + 3, wy + 2]);
-      oval(wx, wy, rr, rr * 0.9, 0, k % 2 ? e.color : tone(e.color, -0.2), f, 2);
+      const wy = -k * gap * (e.vy || 110), rr = e.r * (0.8 - k * 0.1);
+      oval(wx, wy, rr, rr * 0.88, 0, k % 2 ? e.color : tone(e.color, -0.22), f, 2);
+      veins([[wx - rr * 0.6, wy - rr * 0.2, wx, wy + rr * 0.5, wx + rr * 0.5, wy - rr * 0.1]]);
     }
-    const r = e.r, o = Math.sin(e.age * 10) * 1.5;
-    for (const sd of [-1, 1]) boneHook(sd * r * 0.25, r * 0.6, sd * (r * 0.75 + o), r * 0.9, sd * r * 0.15, r * 1.3, sd * 1.4, f);
-    oval(0, 0, r * 0.85, r * 0.8, 0, e.color, f, 2.2);
-    eyes([[-r * 0.32, r * 0.22], [r * 0.32, r * 0.22]], 1.9);
+    const r = e.r;
+    oval(0, 0, r * 0.88, r * 0.84, 0, tone(e.color, 0.08), f, 2.2);
+    maw(0, r * 0.18, r * 0.6, r * 0.52, 9, 0.75 + 0.25 * Math.sin(e.age * 8));
+    eyeball(-r * 0.66, -r * 0.35, 1.8, EYE, e.age); eyeball(r * 0.66, -r * 0.35, 1.8, EYE, e.age);
   },
 
-  diver(e, f) {                       // STINGER: wasp; flashes, then dives stinger-first
+  diver(e, f) {                       // FLAYER: torn wings, one huge eye, dripping stinger; dives stinger-first
     if (e.mode === 1 && Math.floor(e.wait * 12) % 2) f = true;
     if (e.mode === 2) ctx.rotate(Math.atan2(e.vy, e.vx) - Math.PI / 2);
     ctx.scale(e.r / 14, e.r / 14);
-    const flap = Math.abs(Math.sin(e.age * 38));
-    for (const sd of [-1, 1]) wing(sd * 4, -5, sd * -0.5, 0.35 + 0.65 * flap, 9, 4.5, sd * 8);
-    flat(() => path([-2.6, 14, 2.6, 14, 0, 23]), INK, 1);
-    oval(0, 6, 6, 9, 0, e.color, f, 2);
+    const flap = 0.35 + 0.65 * Math.abs(Math.sin(e.age * 34));
+    membrane(-3, -5, Math.PI + 0.45, 17, 7, flap); membrane(3, -5, -0.45, 17, 7, flap);
+    flat(() => path([-2.4, 15, 2.4, 15, 0, 24]), BONE, 1.2);
+    drip(0, 23, e.age * 1.5, e.x, 0.7);
+    oval(0, 6, 6.2, 9.5, 0, e.color, f, 2);
     if (!OUTLINE) {
-      ctx.lineWidth = 1.8; ctx.strokeStyle = INK;
-      ctx.beginPath(); ctx.moveTo(-5.6, 4); ctx.quadraticCurveTo(0, 6.5, 5.6, 4); ctx.moveTo(-4.8, 9); ctx.quadraticCurveTo(0, 11.5, 4.8, 9); ctx.stroke();
+      ctx.lineWidth = 2; ctx.strokeStyle = SLIME;
+      ctx.beginPath(); ctx.moveTo(-5.4, 3.5); ctx.quadraticCurveTo(0, 6, 5.4, 3.5); ctx.moveTo(-5, 9); ctx.quadraticCurveTo(0, 11.5, 5, 9); ctx.stroke();
     }
-    oval(0, -4, 4.5, 4, 0, tone(e.color, -0.3), f, 2);
-    oval(0, -10.5, 4.5, 4, 0, tone(e.color, -0.5), f, 2);
-    eyes([[-2, -11.5], [2, -11.5]], 1.6);
+    oval(0, -4, 4.6, 4.2, 0, tone(e.color, -0.35), f, 2);
+    oval(0, -11, 5.2, 4.6, 0, tone(e.color, -0.5), f, 2);
+    eyeball(0, -11.5, 3.4, '#ff5a3a', e.age);
   },
 
-  gunner(e, f) {                      // SPITTER: bloated acid sac, bone spines; mouth gapes before it spits
+  gunner(e, f) {                      // BLOATER: swollen pus sac crawling with eyes; the maw gapes before it spits
     ctx.scale(e.r / 24, e.r / 24);
-    for (let i = 0; i < 8; i++) {
-      const a = (i / 8) * TAU + 0.2, c = Math.cos(a), sn = Math.sin(a);
-      flat(() => path([c * 17 - sn * 3.5, sn * 17 + c * 3.5, c * 28, sn * 28, c * 17 + sn * 3.5, sn * 17 - c * 3.5]), f ? PAPER : BONE, 1.6);
+    const t = e.age;
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * TAU - 1.2, c = Math.cos(a), sn = Math.sin(a);
+      flat(() => path([c * 16 - sn * 3, sn * 16 + c * 3, c * 25, sn * 25, c * 16 + sn * 3, sn * 16 - c * 3]), f ? PAPER : BONE, 1.5);
     }
-    const pulse = 1 + 0.05 * Math.sin(e.age * 5);
-    ctx.save(); ctx.scale(pulse, pulse); oval(0, 0, 20, 19, 0, e.color, f, 2.4); ctx.restore();
-    if (OUTLINE) return;
-    for (const j of [-1, 0, 1]) oval(j * 9, -9 + Math.abs(j) * 3, 7, 5, j * 0.4, CHITIN, f, 1.8);
-    const open = e.mode === 1 && e.fireT < 0.5 ? 1 - e.fireT / 0.5 : 0.15;
-    ctx.fillStyle = INK; ctx.beginPath(); ctx.ellipse(0, 11, 7, 2 + 5 * open, 0, 0, TAU); ctx.fill();
-    ctx.fillStyle = '#ff8fb0'; ctx.beginPath(); ctx.ellipse(0, 12 + 2 * open, 3.5, 1 + 2 * open, 0, 0, TAU); ctx.fill();
-    eyes([[-8, 4], [8, 4], [0, 1]], 2);
+    const pulse = 1 + 0.06 * Math.sin(t * 5);
+    ctx.save(); ctx.scale(pulse, 1 / pulse * 1.04); oval(0, 0, 20, 19, 0, e.color, f, 2.4); ctx.restore();
+    veins([[-16, -6, -8, -14, 2, -16], [6, -15, 14, -6, 16, 4], [-14, 8, -8, 4, -3, 12]]);
+    const open = e.mode === 1 && e.fireT < 0.5 ? 1 - e.fireT / 0.5 : 0.25;
+    maw(0, 9, 9, 6.5, 10, 0.35 + open * 0.75);
+    eyeball(-9, -6, 3.2, EYE, t); eyeball(6, -10, 2.6, EYE, t); eyeball(12, 0, 2.2, EYE, t); eyeball(-1, -2, 2, EYE, t); eyeball(-13, 3, 1.7, EYE, t);
+    drip(-4, 14, t, e.x); drip(5, 13, t, e.y, 0.8);
   },
 
-  brute(e, f) {                       // BROOD BRUTE: armoured beetle, bone mandibles
+  brute(e, f) {                       // BROOD BRUTE: armoured tick swollen with eggs, giant lamprey maw
     const t = e.age; ctx.scale(e.r / 44, e.r / 44);
-    for (let i = 0; i < 3; i++) for (const sd of [-1, 1]) {
-      const w = Math.sin(t * 6 + i * 1.7 + sd) * 4, by = -12 + i * 14;
-      inkLine(4.5, [sd * 24, by, sd * 42, by - 6 + w, sd * 52, by + 12 + w]);
-    }
-    const o = 4 + 4 * Math.sin(t * 4);
-    for (const sd of [-1, 1]) boneHook(sd * 6, 30, sd * (30 + o), 38, sd * 5, 58, sd * 6, f);
-    oval(0, 26, 20, 14, 0, tone(e.color, -0.45), f, 3);
-    for (const sd of [-1, 1]) {
-      celBuild(() => {
-        ctx.beginPath();
-        ctx.ellipse(sd * 1, -6, 30, 32, 0, sd < 0 ? Math.PI / 2 : -Math.PI / 2, sd < 0 ? Math.PI * 1.5 : Math.PI / 2);
-        ctx.closePath();
-      }, e.color, 32, f, 3);
-      if (!OUTLINE) for (const [sx, sy, sr] of [[16, -18, 4], [20, -2, 3], [13, 10, 3.5]]) {
-        ctx.fillStyle = f ? PAPER : BONE; ctx.globalAlpha = 0.85;
-        ctx.beginPath(); ctx.arc(sd * sx, sy, sr, 0, TAU); ctx.fill(); ctx.globalAlpha = 1;
-      }
-    }
-    eyes([[-9, 26], [-3, 29], [3, 29], [9, 26]], 2.6);
+    const p = Math.sin(t * 3);
+    oval(0, -14, 36 + p, 30 - p, 0, '#d98a9a', f, 3);
+    veins([[-28, -10, -16, -30, 0, -38], [26, -20, 14, -4, 30, 4], [-10, -26, 6, -18, 16, -34]]);
+    eggs([[-14, -20, 5], [2, -26, 5.5], [16, -16, 4.5], [-6, -8, 4], [12, -4, 4]], t);
+    oval(0, 6, 32, 15, 0, e.color, f, 3);
+    oval(0, 15, 27, 12, 0, tone(e.color, -0.15), f, 2.8);
+    oval(0, 24, 21, 10, 0, tone(e.color, -0.3), f, 2.6);
+    for (const sd of [-1, 1]) for (const [x0, y0, x1, y1] of [[28, 2, 40, -6], [24, 12, 36, 10], [19, 22, 29, 26]])
+      flat(() => path([sd * x0, y0 - 3, sd * x1, y1, sd * (x0 - 2), y0 + 4]), f ? PAPER : BONE, 1.6);   // shell spikes
+    maw(0, 30, 13, 10, 12, 0.7 + 0.3 * Math.abs(Math.sin(t * 2.5)));
+    eyeball(-22, 12, 3.2, EYE, t); eyeball(22, 12, 3.2, EYE, t); eyeball(-15, 22, 2.6, EYE, t); eyeball(15, 22, 2.6, EYE, t);
+    eyeball(-8, 9, 2.2, EYE, t); eyeball(8, 9, 2.2, EYE, t);
+    drip(-5, 39, t, 1, 1.4); drip(6, 38, t, 2, 1.2);
   },
 
-  mother(e, f) {                      // SPORE MOTHER: floating sac of pustules trailing tendrils
+  mother(e, f) {                      // SPORE MOTHER: pus-sac blimp; pustules that are really eyes
     const t = e.age; ctx.scale(e.r / 48, e.r / 48);
-    for (let i = 0; i < 5; i++) tendril((i - 2) * 11, 24, (i - 2) * 15, 74, Math.sin(t * 3 + i) * 9, tone(e.color, 0.3), 3.5);
+    for (let i = 0; i < 4; i++) tendril((i - 1.5) * 13, 26, (i - 1.5) * 16, 78, Math.sin(t * 2.2 + i) * 8, tone(e.color, 0.25), 5);
     oval(0, -4, 42, 38, 0, e.color, f, 3);
-    const bumps = [[-20, -18, 8], [4, -26, 9], [24, -10, 7], [-28, 6, 6], [18, 12, 7], [-6, 4, 6], [6, -8, 5]];
-    bumps.forEach(([x, y, r], i) => { const g = r * (1 + 0.15 * Math.sin(t * 4 + i)); oval(x, y, g, g, 0, tone(e.color, 0.4), f, 1.8); });
-    oval(0, 30, 14, 10, 0, tone(e.color, -0.45), f, 2.4);
-    eyes([[-5, 31], [0, 33.5], [5, 31]], 2.4);
+    veins([[-34, -10, -20, -30, 0, -36], [30, -18, 22, 6, 34, 10], [-30, 14, -14, 4, -4, 22]]);
+    const bumps = [[-20, -18, 8], [6, -26, 9], [24, -8, 7], [-28, 6, 6], [18, 14, 7], [-6, 4, 6], [6, -6, 5]];
+    bumps.forEach(([x, y, r], i) => {
+      const g = r * (1 + 0.12 * Math.sin(t * 4 + i));
+      oval(x, y, g, g, 0, PUS, f, 1.8);
+      if (i % 2 === 0) eyeball(x, y, g * 0.6, EYE, t);
+    });
+    maw(0, 28, 15, 9, 12, 0.6 + 0.4 * Math.abs(Math.sin(t * 2)));
+    drip(-8, 34, t, 1, 1.3); drip(8, 34, t, 3, 1.1);
   },
 
-  stalker(e, f) {                     // SCYTHE STALKER: mantis, bone scythes raised to strike
+  stalker(e, f) {                     // SCYTHE WRAITH: bone skull, exposed ribcage, scythe-blade wings
     ctx.scale(e.r / 42, e.r / 42);
-    const flick = Math.sin(e.age * 30) * 0.1;
-    for (const sd of [-1, 1]) wing(sd * 6, -18, sd * (0.6 + flick), 1, 18, 6, sd * 14);
-    oval(0, -22, 12, 22, 0, tone(e.color, -0.25), f, 2.4);
-    if (!OUTLINE) { inkLine(1.6, [-10, -26, 10, -26]); inkLine(1.6, [-11, -16, 11, -16]); }
-    const raise = e.mode === 2 ? 0.9 : 0.35 + Math.sin(e.spin || 0) * 0.35;
+    const t = e.age;
+    const raise = e.mode === 2 ? 0.95 : 0.35 + Math.sin(e.spin || 0) * 0.35;
+    membrane(-6, -20, Math.PI + 0.5 - raise * 0.3, 40, 14, 0.9); membrane(6, -20, -0.5 + raise * 0.3, 40, 14, 0.9);
     for (const sd of [-1, 1]) {
-      ctx.save(); ctx.translate(sd * 8, 4); ctx.rotate(-sd * raise);
-      limb([0, 0, sd * 20, 14], 8, e.color);
-      boneHook(sd * 20, 14, sd * 44, 4, sd * 34, 44, sd * 5, f);
+      ctx.save(); ctx.translate(sd * 9, -16); ctx.rotate(-sd * raise);
+      boneHook(0, 0, sd * 40, -10, sd * 34, 40, sd * 6, f);
       ctx.restore();
     }
-    oval(0, 4, 7, 14, 0, e.color, f, 2.2);
-    celBuild(() => path([-15, 16, 15, 16, 0, 34]), e.color, 16, f, 2.4);
-    if (!OUTLINE) { oval(-8, 19, 5.5, 4.5, -0.3, EYE, f, 1.6); oval(8, 19, 5.5, 4.5, 0.3, EYE, f, 1.6); }
+    for (let k = 0; k < 4; k++) {                    // ribcage
+      const y = -26 + k * 7, w = 16 - k * 2;
+      for (const sd of [-1, 1]) inkLine(4.4, [0, y, sd * w, y + 3, sd * (w - 3), y + 9]);
+      if (!OUTLINE) { ctx.strokeStyle = BONE; ctx.lineWidth = 2; for (const sd of [-1, 1]) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(sd * w, y + 3); ctx.lineTo(sd * (w - 3), y + 9); ctx.stroke(); } }
+    }
+    if (!OUTLINE) { ctx.fillStyle = GORE; ctx.beginPath(); ctx.ellipse(0, -12, 4, 5 + Math.sin(t * 7), 0, 0, TAU); ctx.fill(); }   // a beating heart in the ribs
+    for (let k = 0; k < 6; k++) oval(0, -38 + k * 6.5, 4.6 - k * 0.2, 3.2, 0, BONE, f, 1.6);   // spine
+    oval(0, 12, 15, 16, 0, e.color, f, 2.6);
+    if (!OUTLINE) {
+      for (const sd of [-1, 1]) {
+        ctx.fillStyle = MAW; ctx.beginPath(); ctx.ellipse(sd * 6, 8, 4.6, 5.4, sd * 0.3, 0, TAU); ctx.fill();
+        ctx.fillStyle = COL.red; ctx.beginPath(); ctx.arc(sd * 6 + Math.cos(LOOK), 9 + Math.sin(LOOK), 1.6 + 0.4 * Math.sin(t * 9), 0, TAU); ctx.fill();
+      }
+      flat(() => path([-2, 15, 2, 15, 0, 19]), MAW, 1);
+    }
+    maw(0, 26, 10, 6, 10, e.mode === 2 ? 1 : 0.55);
   },
 
-  queen(e, f) {                       // HIVE QUEEN: crowned brood-mother, four bone scythes
+  queen(e, f) {                       // HIVE QUEEN: crowned horror, glowing egg sac, vertical maw
     const t = e.age; ctx.scale(e.r / 66, e.r / 66);
-    const eyeC = e.phase === 3 ? COL.red : EYE;
-    for (let i = 0; i < 6; i++) {
-      const sd = i % 2 ? 1 : -1, k = Math.floor(i / 2);
-      tendril(sd * (20 + k * 10), -40 + k * 12, sd * (62 + k * 6), -70 + k * 22, Math.sin(t * 2.5 + i) * 10, tone(e.color, 0.25), 3.5);
-    }
-    oval(0, -34, 46, 40, 0, tone(e.color, -0.15), f, 3.2);
-    if (!OUTLINE) {
-      ctx.lineWidth = 2; ctx.strokeStyle = INK;
-      for (const yy of [-52, -38, -24]) { ctx.beginPath(); ctx.moveTo(-38, yy); ctx.quadraticCurveTo(0, yy + 10, 38, yy); ctx.stroke(); }
-      [[-18, -44], [16, -46], [-6, -30], [22, -28]].forEach(([x, y], i) => {
-        const g = 4.5 + Math.sin(t * 5 + i) * 1.2; oval(x, y, g, g, 0, '#ff9ad1', f, 1.4);
-      });
-    }
-    for (const sd of [-1, 1]) for (let j = 0; j < 2; j++) {
-      const sw = Math.sin(t * 3 + j * 1.5 + sd) * 4;
-      const ex = sd * (58 + j * 6), ey = 8 + j * 18 + sw;
-      limb([sd * 28, 2 + j * 14, ex, ey], 8, e.color);
-      boneHook(ex, ey, ex + sd * 14, ey + 20, ex - sd * 6, ey + 42, sd * 5, f);
-    }
-    for (const [x0, y0, x1, y1] of [[-30, 0, -50, -14], [-22, -6, -40, -28], [30, 0, 50, -14], [22, -6, 40, -28]]) {
+    const angry = e.phase === 3, flap = 0.85 + 0.15 * Math.sin(t * 3);
+    membrane(-16, -40, Math.PI + 0.35, 58, 22, flap); membrane(16, -40, -0.35, 58, 22, flap);
+    for (let i = 0; i < 4; i++) tendril((i - 1.5) * 12, 34, (i - 1.5) * 18, 96 + (i % 2) * 10, Math.sin(t * 2 + i * 1.3) * 10, tone(e.color, 0.3), 5.5);
+    oval(0, -36, 46 + Math.sin(t * 2) * 1.5, 40, 0, '#d98a9a', f, 3.2);
+    veins([[-40, -30, -26, -60, 0, -70], [38, -44, 26, -14, 42, -22], [-30, -12, -10, -24, 6, -8], [8, -60, 20, -40, 34, -56]]);
+    eggs([[-22, -44, 6], [-4, -56, 6.5], [16, -46, 6], [-12, -28, 5], [8, -30, 5.5], [26, -26, 4.5], [-28, -24, 4.5]], t);
+    for (const [x0, y0, x1, y1] of [[-30, 0, -52, -16], [-22, -6, -42, -30], [30, 0, 52, -16], [22, -6, 42, -30]]) {
       flat(() => path([x0 - 4, y0, x1, y1, x0 + 4, y0 - 4]), f ? PAPER : BONE, 2);
     }
-    celBuild(() => path([-34, 4, -20, -8, 0, -12, 20, -8, 34, 4, 24, 30, 0, 40, -24, 30]), e.color, 36, f, 3);
-    const o = 3 + 3 * Math.sin(t * 5);
-    for (const sd of [-1, 1]) boneHook(sd * 8, 34, sd * (24 + o), 44, sd * 4, 62, sd * 6, f);
-    eyes([[-14, 12], [14, 12], [-8, 21], [8, 21], [-4, 5], [4, 5]], 3.4, eyeC);
+    celBuild(() => path([-34, 4, -20, -8, 0, -12, 20, -8, 34, 4, 26, 32, 0, 44, -26, 32]), e.color, 36, f, 3);
+    const open = (angry ? 0.85 : 0.55) + 0.25 * Math.abs(Math.sin(t * (angry ? 5 : 2.5)));
+    maw(0, 24, 11, 16, 14, open);
+    const eyesAt = [[-18, 6], [18, 6], [-24, 16], [24, 16], [-14, -2], [14, -2], [-20, 27], [20, 27]];
+    eyesAt.forEach(([x, y], i) => eyeball(x, y, i < 2 ? 4.2 : 3.2, EYE, t, angry));
+    drip(-6, 40, t, 1, 1.6); drip(5, 41, t, 4, 1.4);
   },
 };
 
 function drawEnemy(e) {
   const draw = CREATURE[e.type] || CREATURE.drone, flash = e.flash > 0;
+  LOOK = S ? Math.atan2(S.p.y - e.y, S.p.x - e.x) : Math.PI / 2;
   // pass 1: thin white rim around the silhouette; pass 2: the creature itself
   ctx.save(); ctx.translate(e.x, e.y);
   OUTLINE = true; ctx.globalAlpha = 0.9;

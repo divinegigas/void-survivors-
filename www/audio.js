@@ -9,6 +9,7 @@
 let AC = null;                       // the AudioContext (created on the first tap)
 const AUD = {};                      // shared nodes
 const PREF = META.audio || (META.audio = { music: true, sfx: true });
+const MUSIC_VOL = 0.3, SFX_VOL = 0.85;     // the mix: music a touch under the effects
 
 const mf = m => 440 * Math.pow(2, (m - 69) / 12);     // MIDI note -> Hz
 
@@ -39,8 +40,8 @@ function buildGraph() {
   const master = AC.createDynamicsCompressor();
   master.threshold.value = -16; master.ratio.value = 4; master.attack.value = 0.005; master.release.value = 0.2;
   master.connect(AC.destination);
-  AUD.music = node('gain', { gain: PREF.music ? 0.42 : 0 }); AUD.music.connect(master);
-  AUD.sfx = node('gain', { gain: PREF.sfx ? 0.55 : 0 }); AUD.sfx.connect(master);
+  AUD.music = node('gain', { gain: PREF.music ? MUSIC_VOL : 0 }); AUD.music.connect(master);
+  AUD.sfx = node('gain', { gain: PREF.sfx ? SFX_VOL : 0 }); AUD.sfx.connect(master);
   AUD.song = node('gain', { gain: 1 }); AUD.song.connect(AUD.music);
 
   // spring-ish reverb: a short burst of decaying, slightly "boingy" noise
@@ -350,7 +351,8 @@ const SFX = {
     gemCombo = t - gemT < 0.35 ? Math.min(gemCombo + 1, 12) : 0; gemT = t;
     blip(t, 'sine', 990 * Math.pow(2, gemCombo / 12), 0, 0.06, 0.016);
   },
-  levelup: (t) => [76, 80, 83, 88].forEach((m, i) => blip(t + i * 0.07, 'triangle', mf(m), 0, 0.14, 0.08)),
+  levelup: (t) => levelUpFanfare(t),
+  pick:    (t, tier) => cardPick(t, tier),
   hit:     (t) => { hiss(t, 'lowpass', 420, 0.25, 0.3); blip(t, 'square', 140, 55, 0.2, 0.08); },
   shield:  (t) => blip(t, 'sine', 1100, 2600, 0.15, 0.07),
   ult:     (t) => { const f = hiss(t, 'bandpass', 300, 0.6, 0.12, 1.5); f.frequency.exponentialRampToValueAtTime(4000, t + 0.5);
@@ -360,6 +362,29 @@ const SFX = {
   gameover:(t) => [64, 63, 62, 52].forEach((m, i) => blip(t + i * 0.22, 'sawtooth', mf(m), 0, 0.35, 0.05)),
   click:   (t) => blip(t, 'square', 1500, 1200, 0.025, 0.03),
 };
+// LEVEL UP: whoosh riser -> sparkling run up the scale -> big shimmering chord + bell + thump
+function levelUpFanfare(t) {
+  const w = hiss(t, 'bandpass', 350, 0.4, 0.12, 2.5); w.frequency.exponentialRampToValueAtTime(7000, t + 0.32);
+  [76, 80, 83, 85, 88, 92, 95, 97].forEach((m, i) => blip(t + 0.04 + i * 0.038, 'triangle', mf(m), 0, 0.14, 0.075));
+  const t2 = t + 0.36;
+  const filt = node('filter', { type: 'lowpass', frequency: 500, Q: 2 });
+  filt.frequency.setValueAtTime(500, t2); filt.frequency.exponentialRampToValueAtTime(6000, t2 + 0.25);
+  const g = env(AUD.sfx, t2, 0.07, 0.02, 0.35, 0.25); filt.connect(g);
+  for (const m of [64, 68, 71, 75, 78]) { osc('sawtooth', mf(m), t2, 1.6, filt, -6); osc('sawtooth', mf(m), t2, 1.6, filt, 6); }
+  const bell = env(AUD.sfx, t2, 0.09, 0.002, 0.4);
+  osc('sine', mf(88), t2, 1.6, bell); osc('sine', mf(88) * 2.76, t2, 0.6, env(AUD.sfx, t2, 0.03, 0.002, 0.12));
+  blip(t2, 'sine', 130, 50, 0.3, 0.22);
+  const sh = node('filter', { type: 'highpass', frequency: 8000 }); sh.connect(env(AUD.sfx, t2, 0.05, 0.05, 0.3)); noise(t2, 1.0, sh);
+}
+// CARD PICKED: a crisp "ka-ching", plus more sparkle the rarer the card
+function cardPick(t, tier) {
+  blip(t, 'square', mf(83), 0, 0.07, 0.05);
+  blip(t + 0.06, 'square', mf(88), 0, 0.25, 0.06);
+  blip(t, 'sine', 180, 60, 0.15, 0.15);
+  const extra = { uncommon: 3, rare: 6, ult: 9 }[tier] || 0;
+  for (let i = 0; i < extra; i++) blip(t + 0.1 + i * 0.045, 'triangle', mf(88 + [3, 7, 10, 12, 15, 19, 22, 24, 27][i]), 0, 0.12, 0.05);
+  if (tier === 'rare' || tier === 'ult') blip(t + 0.12, 'sine', mf(100), 0, 0.8, 0.05);
+}
 function crashFx(t) { const f = node('filter', { type: 'highpass', frequency: 3000 }); f.connect(env(AUD.sfx, t, 0.15, 0.002, 0.6)); noise(t, 1.5, f); }
 
 // ============================================================================
@@ -369,8 +394,8 @@ let lastMusicLevel = -1, laserHum = null;
 function audioUpdate() {
   if (!AC || !S) return;
   const level = !PREF.music ? 0 : S.state === 'paused' ? 0.12 : S.state === 'levelup' ? 0.6 : 1;
-  if (level !== lastMusicLevel) { lastMusicLevel = level; AUD.music.gain.setTargetAtTime(0.42 * level, AC.currentTime, 0.15); }
-  AUD.sfx.gain.setTargetAtTime(PREF.sfx ? 0.55 : 0, AC.currentTime, 0.05);
+  if (level !== lastMusicLevel) { lastMusicLevel = level; AUD.music.gain.setTargetAtTime(MUSIC_VOL * level, AC.currentTime, 0.15); }
+  AUD.sfx.gain.setTargetAtTime(PREF.sfx ? SFX_VOL : 0, AC.currentTime, 0.05);
   MUS.intense = S.state === 'play' && S.enemies.some(e => e.boss && !e.dead);
   // a soft hum while the Pulse Laser is firing
   const want = PREF.sfx && S.laser && S.state === 'play';
