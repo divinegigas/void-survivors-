@@ -15,13 +15,14 @@ const CFG = {
     dragSensitivity: 1.3,     // 1 = ship moves exactly as far as your finger
     keySpeed: 260,            // arrow keys / WASD speed (for testing on a computer)
     invulnTime: 1.2,          // seconds of blinking safety after a hit
-    fireInterval: 0.16,       // seconds between main-gun shots (lower = faster)
-    damage: 10,               // main-gun damage per bullet
+    fireInterval: 0.16,       // Wing Cannons: seconds between pod shots (lower = faster)
+    damage: 10,               // Wing Cannons: pod bullet base damage
     bulletSpeed: 720,
     magnetRadius: 34,         // how close you must fly to pull in XP crystals
   },
 
-  slots: { weapons: 4, passives: 4 },   // your ship's signature weapon is a bonus slot on top
+  slots: { weapons: 4, passives: 4 },
+  signatureCooldown: 0.8,     // a ship's own weapon fires 20% faster than the same weapon picked up later (1 = no bonus)   // your ship's signature weapon is a bonus slot on top
   rarityWeights: { common: 4, uncommon: 2, rare: 1 },   // common is 2x as likely as uncommon, which is 2x rare
   shipCost: { common: 150, uncommon: 450, rare: 1000 }, // credits to unlock a ship, by its weapon's tier
   deflectorRecharge: [0, 40, 32, 25, 19, 14],            // Deflector Shield recharge seconds per Hangar level
@@ -242,7 +243,7 @@ function drawStars() {
 // .speed (projectile speed), .pierce.
 // ============================================================================
 function shoot(b) { S.bullets.push(b); return b; }
-const cd = base => base * S.mod.cd;
+const cd = base => base * S.mod.cd * (S.sig ? CFG.signatureCooldown : 1);
 const spd = v => v * S.mod.speed;
 function nearestEnemy(x, y, maxDist, skip) {
   let best = null, bd = maxDist * maxDist;
@@ -309,10 +310,10 @@ const WEAPONS = {
 
   wing: {
     name: 'Wing Cannons', color: '#3df5ff', glyph: '⇈', tier: 'common',
-    levels: ['Two escort pods copy your main gun', 'Pods hit harder', 'Pods fire faster', 'Pods hit even harder', 'Pods at full power'],
+    levels: ['Two escort pods with rapid-fire cannons', 'Pods hit harder', 'Pods fire faster', 'Pods hit even harder', 'Pods at full power'],
     update(w, dt) {
       if ((w.t -= dt) > 0) return;
-      w.t = S.p.fireInterval * S.mod.cd * (w.lvl >= 3 ? 1.0 : 1.3);
+      w.t = cd(CFG.player.fireInterval * (w.lvl >= 3 ? 1.0 : 1.3));
       const dmg = CFG.player.damage * (0.4 + 0.15 * w.lvl);
       for (const side of [-1, 1]) gunShot(S.p.x + side * 24, S.p.y - 4, UP, CFG.player.bulletSpeed, dmg, this.color);
     },
@@ -542,7 +543,6 @@ function recalcMods() {
   const p = S.p;
   p.magnet = CFG.player.magnetRadius * (1 + 0.1 * ML('magnet') + 0.3 * PL('tractor'));
   p.maxHp = CFG.player.hp + ML('hull') + PL('plating');
-  p.fireInterval = CFG.player.fireInterval * m.cd;
 }
 
 // ============================================================================
@@ -558,8 +558,7 @@ function newGame(state) {
   S = {
     state: state || 'play',     // title | hangar | play | levelup | paused | over
     t: 0, kills: 0, level: 1, xp: 0, shake: 0, credits: 0,
-    p: { x: W / 2, y: H * 0.78, hp: 0, maxHp: 0, invuln: 0, fireT: 0,
-         fireInterval: 0, magnet: 0, bubble: false, bubbleT: 0, repairT: 0 },
+    p: { x: W / 2, y: H * 0.78, hp: 0, maxHp: 0, invuln: 0, magnet: 0, bubble: false, bubbleT: 0, repairT: 0 },
     weapons: {}, passives: {}, mod: null,
     bullets: [], ebullets: [], enemies: [], orbs: [], parts: [], novas: [], zaps: [], texts: [], laser: null,
     spawnT: CFG.spawn.graceTime, nextBoss: CFG.boss.first, bossCount: 0, warn: 0,
@@ -957,16 +956,13 @@ function gameUpdate(dt) {
     if (p.hp < p.maxHp) { p.hp++; floatText(p.x, p.y - 26, '+1 HULL', COL.xp, 11); }
   }
 
-  // --- main gun: always firing
-  p.fireT -= dt;
-  while (p.fireT <= 0) {
-    p.fireT += p.fireInterval;
-    gunShot(p.x, p.y - 16, UP, CFG.player.bulletSpeed, CFG.player.damage, COL.player);
-  }
-
-  // --- loadout weapons
+  // --- weapons: no basic cannon, every ship relies on its signature weapon + what it picks up
   S.laser = null;
-  for (const id in S.weapons) WEAPONS[id].update(S.weapons[id], dt);
+  for (const id in S.weapons) {
+    S.sig = !!S.weapons[id].builtin;     // signature weapon gets CFG.signatureCooldown
+    WEAPONS[id].update(S.weapons[id], dt);
+  }
+  S.sig = false;
 
   // --- spawning: small fry, plus a capital ship on a timer
   if (S.t >= S.nextBoss - 3 && S.warn <= 0 && !S.warned) { S.warn = 3; S.warned = true; buzz([60, 60, 60]); }
