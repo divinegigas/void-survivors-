@@ -1631,8 +1631,8 @@ function drawBurst(b) {
 // ============================================================================
 // HUD
 // ============================================================================
-const PAUSE_BTN = { x: W - 44, y: 14, w: 40, h: 40 };
-const ULT_POS = () => ({ x: W - 112, y: H - 44 });
+const PAUSE_BTN = { x: W - 44, y: 2, w: 44, h: 44 };
+const ULT_POS = () => ({ x: W - 40, y: H - 46 });
 
 function drawSlot(x, y, def, lvl, max, builtin, size) {
   const s = size || 23;
@@ -1666,10 +1666,10 @@ function drawHud() {
 
   inkText(`LV ${S.level}`, 8, 28, 20, PAPER, 'left');
   const L = stageLen();
-  inkText(fmtTime(Math.min(S.t, L)), W / 2, 28, 20, S.queenUp ? COL.red : PAPER);
-  // stage progress (top right, under the hearts): 3 mini-boss markers and the final boss at the end
-  const pw = 104, px = W - 14 - pw, py = 66;
-  inkText(isRush() ? 'RUSH' : `STG ${S.stage}`, px - 6, py + 1, 11, isRush() ? COL.red : COL.dim, 'right', FONT_D, 2.5);
+  inkText(fmtTime(Math.min(S.t, L)), W / 2, 26, 20, S.queenUp ? COL.red : PAPER);
+  // stage progress (top centre, under the clock): mini-boss markers and the final boss at the end
+  const pw = 120, px = W / 2 - pw / 2, py = 41;
+  inkText(isRush() ? 'RUSH' : `STG ${S.stage}`, px - 8, py + 1, 11, isRush() ? COL.red : COL.dim, 'right', FONT_D, 2.5);
   ctx.fillStyle = INK; ctx.fillRect(px - 2, py - 2, pw + 4, 6);
   ctx.fillStyle = '#3a3366'; ctx.fillRect(px, py, pw, 2);
   ctx.fillStyle = COL.gold; ctx.fillRect(px, py, pw * Math.min(1, S.t / L), 2);
@@ -1681,26 +1681,31 @@ function drawHud() {
   }
   inkText(`${Math.floor(S.credits)} CR`, W - 50, 28, 18, COL.gold, 'right');
 
-  // hull hearts, top right
-  for (let i = 0; i < p.maxHp; i++) {
-    const x = W - 16 - (p.maxHp - 1 - i) * 14, y = 49;
-    heart(x, y, 5.5);
-    ctx.fillStyle = i < p.hp ? COL.red : '#3a3366'; ctx.fill();
-    ctx.lineWidth = 1.8; ctx.strokeStyle = INK; ctx.stroke();
+  // hull hearts: a big row along the bottom, between the pilot and the ultimate button
+  {
+    const gap = Math.min(31, (W - 196) / Math.max(1, p.maxHp)), cx = (108 + W - 74) / 2, y = H - 30;
+    for (let i = 0; i < p.maxHp; i++) {
+      const x = cx + (i - (p.maxHp - 1) / 2) * gap, lost = i >= p.hp, pulse = !lost && p.hp === 1 ? 1 + 0.12 * Math.sin(S.t * 12) : 1;
+      heart(x + 2, y + 2, Math.min(11.5, gap * 0.38) * pulse); ctx.fillStyle = INK; ctx.fill();
+      heart(x, y, Math.min(11.5, gap * 0.38) * pulse);
+      ctx.fillStyle = lost ? '#3a3366' : COL.red; ctx.fill();
+      ctx.lineWidth = 2.4; ctx.strokeStyle = INK; ctx.stroke();
+      if (!lost) { ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.beginPath(); ctx.ellipse(x - 3.5, y - 3, 1.8, 3, 0.5, 0, TAU); ctx.fill(); }
+    }
   }
 
   // Loadout: signature weapon (bold, starred), then the weapon row and the support row.
   // Slots shrink a little once a row holds more than four (stage 3 onwards).
   const sig = S.ship.weapon, wIds = slotWeapons(), pIds = Object.keys(S.passives), sc = slotCount();
   const most = Math.max(sc.weapons, sc.passives), sz = most > 4 ? 19 : 23, step = sz + (most > 4 ? 4 : 5);
-  drawSlot(8, 42, WEAPONS[sig], S.weapons[sig].lvl, weaponMax(), true, sz);
+  drawSlot(8, 50, WEAPONS[sig], S.weapons[sig].lvl, weaponMax(), true, sz);
   for (let i = 0; i < sc.weapons; i++) {
     const id = wIds[i];
-    drawSlot(38 + i * step, 42, id && WEAPONS[id], id && S.weapons[id].lvl, weaponMax(), false, sz);
+    drawSlot(38 + i * step, 50, id && WEAPONS[id], id && S.weapons[id].lvl, weaponMax(), false, sz);
   }
   for (let i = 0; i < sc.passives; i++) {
     const id = pIds[i];
-    drawSlot(38 + i * step, 46 + sz, id && PASSIVES[id], id && S.passives[id].lvl, id && passiveMax(id), false, sz);
+    drawSlot(38 + i * step, 54 + sz, id && PASSIVES[id], id && S.passives[id].lvl, id && passiveMax(id), false, sz);
   }
 
   // pause button
@@ -1738,10 +1743,10 @@ function drawHud() {
       ctx.beginPath(); ctx.arc(x, y, r + 6 + (1.6 - S.ultLvFlash) * 30, 0, TAU); ctx.stroke(); ctx.globalAlpha = 1;
     }
   }
-  // pilot face, bottom right: calm, hurt or critical, and it flinches when you're hit
+  // pilot face, bottom left: calm, hurt or critical, and it flinches when you're hit
   if (S.shipId && typeof PILOTS !== 'undefined') {
-    const fw = 66, fh = 72, shake = UIM.faceHit > 0 ? rand(-3, 3) * UIM.faceHit * 2 : 0;
-    const fx = W - fw - 10 + shake, fy = H - fh - 12;
+    const fw = 88, fh = 96, shake = UIM.faceHit > 0 ? rand(-3, 3) * UIM.faceHit * 2 : 0;
+    const fx = 10 + shake, fy = H - fh - 12;
     const box = [fx + 8, fy, fx + fw, fy, fx + fw - 8, fy + fh, fx, fy + fh];
     path(box.map((v, i) => v + 4)); ctx.fillStyle = INK; ctx.fill();
     path(box); ctx.fillStyle = S.ship.color; ctx.fill();
@@ -1767,7 +1772,7 @@ function drawHud() {
   }
   const boss = S.enemies.find(e => e.boss && !e.dead);
   if (boss) {
-    const y = 98;
+    const y = 106;
     ctx.fillStyle = INK; ctx.fillRect(18, y, W - 36, 10);
     ctx.fillStyle = '#3a3366'; ctx.fillRect(20, y + 2, W - 40, 6);
     ctx.fillStyle = boss.color; ctx.fillRect(20, y + 2, (W - 40) * Math.max(0, boss.hp / boss.maxHp), 6);
