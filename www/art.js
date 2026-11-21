@@ -1931,7 +1931,7 @@ function drawTitle() {
   ctx.globalAlpha = 1;
   drawButton('launch', 34, by + 8, W - 68, 54, 'LAUNCH!', COL.xp, openStages);
   drawButton('hangar', 34, by + 74, W - 68, 46, `HANGAR · ${META.bank} CR`, '#ff8c1a', openHangar);
-  drawSoundToggles(by + 132);
+  drawButton('settings', 34, by + 132, W - 68, 40, 'SETTINGS', '#a45cff', openSettings);
   if (META.best > 0) inkText(`BEST TIME ${fmtTime(META.best)}${META.clears ? ` · CLEARS ${META.clears}` : ''}`, W / 2, by + 186, 14, COL.dim, 'center', FONT_D, 3);
 }
 
@@ -2108,11 +2108,47 @@ function drawUpgradeList(top, bottom) {
   });
 }
 
-function drawSoundToggles(y) {
-  if (typeof toggleMusic !== 'function') return;
-  const w = (W - 100) / 2;
-  drawButton('music', 44, y, w, 38, `MUSIC ${PREF.music ? 'ON' : 'OFF'}`, PREF.music ? '#a45cff' : '#5a5480', toggleMusic);
-  drawButton('sound', 56 + w, y, w, 38, `SOUND ${PREF.sfx ? 'ON' : 'OFF'}`, PREF.sfx ? '#a45cff' : '#5a5480', toggleSfx);
+// --- Settings overlay: volume sliders, vibration, reset progress (with an are-you-sure screen) ---
+let uiSliders = [];
+function drawSlider(label, y, value, set, color) {
+  const x0 = 60, x1 = W - 60;
+  plainText(label, 30, y - 22, 18, PAPER, 'left');
+  plainText(Math.round(value * 100) + '%', W - 30, y - 22, 18, color, 'right');
+  slant(x0 - 14, y - 9, x1 - x0 + 28, 18, INK, 0, 6);
+  slant(x0 - 10, y - 5, (x1 - x0 + 20) * Math.max(0.04, value), 10, color, 0, 4);
+  const kx = lerp(x0, x1, value);
+  ctx.save(); ctx.translate(kx, y); ctx.rotate(Math.PI / 4);
+  ctx.fillStyle = PAPER; ctx.fillRect(-11, -11, 22, 22); ctx.lineWidth = 3; ctx.strokeStyle = INK; ctx.strokeRect(-11, -11, 22, 22);
+  ctx.restore();
+  uiSliders.push({ rect: { x: x0 - 30, y: y - 26, w: x1 - x0 + 60, h: 52 }, x0, x1, set });
+}
+function drawSettings() {
+  uiButtons = []; uiSliders = [];           // the overlay takes all the taps
+  const st = S.settings, e = easeOut(clamp(UIM.t / 0.25, 0, 1));
+  dim(0.95);
+  ctx.save(); ctx.translate(-(1 - e) * W, 0);
+  slab([0, 22, W, 10, W, 74, 0, 86], '#a45cff', true);
+  ctx.restore();
+  if (st.page === 'main') {
+    inkText('SETTINGS', W / 2, 52, 40, COL.gold, 'center', FONT_D, 7);
+    const y0 = 150;
+    drawSlider('MUSIC', y0, PREF.musicVol, v => setVolume('musicVol', v), '#a45cff');
+    drawSlider('SOUND EFFECTS', y0 + 90, PREF.sfxVol, v => { const was = PREF.sfxVol; setVolume('sfxVol', v); if (Math.abs(v - was) > 0.08) snd('gem'); }, COL.player);
+    drawButton('vibe', 40, y0 + 150, W - 80, 44, `VIBRATION ${PREF.vibe ? 'ON' : 'OFF'}`, PREF.vibe ? COL.xp : '#5a5480',
+               () => { PREF.vibe = !PREF.vibe; saveMeta(); buzz(40); });
+    drawButton('reset', 40, H - 150, W - 80, 44, 'RESET PROGRESS', COL.red, () => { st.page = 'confirm'; st.armed = false; UIM.t = 0; S.uiLock = 0.4; });
+    drawButton('done', 40, H - 88, W - 80, 54, 'DONE', COL.xp, closeSettings);
+  } else {
+    // the are-you-sure screen
+    const flash = Math.floor(performance.now() / 300) % 2 === 0;
+    slamTitle('ARE YOU SURE?', W / 2, H * 0.22, 40, COL.red, COL.gold);
+    slant(20, H * 0.3, W - 40, 150, PAPER, 5, 12);
+    const lines = ['This erases ALL of your progress:', 'credits, ships, pilots, Hangar upgrades,', 'unlocked stages, secrets and best times.', 'Your sound settings stay.', 'THIS CANNOT BE UNDONE.'];
+    lines.forEach((l, i) => plainText(l, W / 2, H * 0.3 + 24 + i * 25, i === 4 ? 16 : 13, i === 4 ? COL.red : INK, 'center', i === 4 ? FONT_D : FONT_B));
+    drawButton('keep', 40, H * 0.3 + 180, W - 80, 56, 'NO, KEEP MY PROGRESS', COL.xp, () => { st.page = 'main'; UIM.t = 0; });
+    drawButton('erase', 40, H * 0.3 + 254, W - 80, 46, st.armed ? 'TAP AGAIN TO ERASE EVERYTHING' : 'YES, ERASE EVERYTHING',
+               st.armed && flash ? '#ff7a7a' : COL.red, () => { if (st.armed) resetProgress(); else { st.armed = true; buzz([60, 40, 60]); } });
+  }
 }
 
 function drawPaused() {
@@ -2126,7 +2162,7 @@ function drawPaused() {
   slamTitle('PAUSED', W * 0.32, H * 0.34, 44, COL.player, PAPER);
   drawButton('resume', 44, H * 0.5, W - 88, 54, 'RESUME', COL.xp, resume);
   drawButton('quit', 44, H * 0.5 + 68, W - 88, 46, 'END RUN', COL.red, () => gameOver(true));
-  drawSoundToggles(H * 0.5 + 128);
+  drawButton('settings', 44, H * 0.5 + 128, W - 88, 40, 'SETTINGS', '#a45cff', openSettings);
 }
 
 function drawGameOver() {
@@ -2391,7 +2427,7 @@ function render() {
   if (!bgCanvas) artResize();
   if (themeStage() !== bgStage) buildBackground(themeStage());
   // a new screen? restart its entrance animation (and wipe between menu screens)
-  const key = S ? S.state + (S.state === 'hangar' ? hangarTab : '') + (S.state === 'play' ? S.stage : '') : '';
+  const key = S ? S.state + (S.state === 'hangar' ? hangarTab : '') + (S.state === 'play' ? S.stage : '') + (S.settings ? 'set' : '') : '';
   if (key !== UIM.key) {
     const from = UIM.key;
     UIM.key = key; UIM.t = 0;
@@ -2415,6 +2451,7 @@ function render() {
   else if (S.state === 'stages') drawStages();
   if (S.state === 'play') drawStageIntro();
   else if (S.state === 'over' || S.state === 'won') drawGameOver();
+  if (S.settings) drawSettings();
   ctx.setTransform(SCALE, 0, 0, SCALE, 0, 0);
   drawWipe();
 }

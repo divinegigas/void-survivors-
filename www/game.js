@@ -117,7 +117,7 @@ function compact(arr) {          // remove dead things without allocating a new 
 // Sound hooks (audio.js). Safe no-ops if audio isn't available.
 const snd = (name, arg) => { if (typeof sfx === 'function') sfx(name, arg); };
 const music = (cmd, id) => { if (typeof musicStart !== 'function') return; cmd === 'start' ? musicStart(id) : musicStop(); };
-function buzz(ms) { try { navigator.vibrate && navigator.vibrate(ms); } catch (e) {} }
+function buzz(ms) { if (META.audio && META.audio.vibe === false) return; try { navigator.vibrate && navigator.vibrate(ms); } catch (e) {} }
 
 const TIER = {
   common:   { name: 'COMMON',   color: '#3ddc4a' },
@@ -1986,6 +1986,17 @@ function buttonAt(pt) {
   return null;
 }
 
+// --- Settings (an overlay on the title or pause screen) ---------------------------
+function openSettings() { S.settings = { page: 'main' }; S.uiLock = 0.15; }
+function closeSettings() { saveMeta(); S.settings = null; S.uiLock = 0.15; }
+function resetProgress() {             // wipes the save but keeps your sound settings, then restarts the game
+  const keep = { audio: META.audio };
+  try { localStorage.removeItem('starburn.best'); localStorage.setItem(META_KEY, JSON.stringify(keep)); } catch (e) {}
+  location.reload();
+}
+function sliderAt(pt) { for (const sl of uiSliders) if (inRect(pt, sl.rect)) return sl; return null; }
+function dragSlider(sl, pt) { sl.set(clamp((pt.x - sl.x0) / (sl.x1 - sl.x0), 0, 1)); }
+
 function openHangar() { newGame('hangar'); S.uiLock = 0.15; }
 function openStages() { newGame('stages'); S.uiLock = 0.15; }
 function resume() { S.state = 'play'; input.dx = input.dy = 0; }
@@ -2014,12 +2025,15 @@ window.addEventListener('pointerdown', e => {
     input.downT = performance.now(); input.downX = e.clientX; input.downY = e.clientY;
   } else {
     input.sx = e.clientX; input.sy = e.clientY;      // for swipes (the ship wheel)
+    const sl = S.settings && sliderAt(pt);
+    if (sl) { input.slider = sl; input.sx = undefined; dragSlider(sl, pt); S.uiPress = null; e.preventDefault(); return; }
     if (S.uiLock <= 0) { const b = buttonAt(pt); S.uiPress = b ? b.id : null; }
   }
   e.preventDefault();
 }, { passive: false });
 
 window.addEventListener('pointermove', e => {
+  if (input.slider) { dragSlider(input.slider, toWorld(e)); e.preventDefault(); return; }
   if (e.pointerId !== input.id || !S || S.state !== 'play') return;
   const r = cv.getBoundingClientRect(), k = W / r.width;
   input.dx += (e.clientX - input.lx) * k;
@@ -2029,6 +2043,7 @@ window.addEventListener('pointermove', e => {
 }, { passive: false });
 
 window.addEventListener('pointerup', e => {
+  if (input.slider) { input.slider = null; saveMeta(); snd('click'); return; }
   if (e.pointerId === input.id) {
     input.id = null;
     // A quick tap (short, barely moved). Two of them close together = ultimate.
@@ -2057,6 +2072,8 @@ window.addEventListener('keydown', e => {
   keys[k] = true;
   if (!S) return;
   if (S.state === 'hangar' && (k === 'arrowleft' || k === 'arrowright') && typeof uiSwipe === 'function') uiSwipe(k === 'arrowleft' ? -1 : 1);
+  if (k === 'escape' && S.settings) { closeSettings(); return; }
+  if (S.settings) return;
   if ((k === 'escape' || k === 'p') && (S.state === 'play' || S.state === 'paused')) { if (S.state === 'play') S.state = 'paused'; else resume(); }
   if (k === 'e' && S.state === 'play') activateUlt();
   if (S.state === 'levelup' && S.uiLock <= 0) {

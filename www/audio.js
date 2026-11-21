@@ -9,6 +9,11 @@
 let AC = null;                       // the AudioContext (created on the first tap)
 const AUD = {};                      // shared nodes
 const PREF = META.audio || (META.audio = { music: true, sfx: true });
+// volumes 0-1 (sliders in Settings); older saves only had on/off
+if (PREF.musicVol === undefined) PREF.musicVol = PREF.music === false ? 0 : 1;
+if (PREF.sfxVol === undefined) PREF.sfxVol = PREF.sfx === false ? 0 : 1;
+if (PREF.vibe === undefined) PREF.vibe = true;
+const musicOn = () => PREF.musicVol > 0.001, sfxOn = () => PREF.sfxVol > 0.001;
 const MUSIC_VOL = 0.3, SFX_VOL = 0.85;     // the mix: music a touch under the effects
 
 const mf = m => 440 * Math.pow(2, (m - 69) / 12);     // MIDI note -> Hz
@@ -40,8 +45,8 @@ function buildGraph() {
   const master = AC.createDynamicsCompressor();
   master.threshold.value = -16; master.ratio.value = 4; master.attack.value = 0.005; master.release.value = 0.2;
   master.connect(AC.destination);
-  AUD.music = node('gain', { gain: PREF.music ? MUSIC_VOL : 0 }); AUD.music.connect(master);
-  AUD.sfx = node('gain', { gain: PREF.sfx ? SFX_VOL : 0 }); AUD.sfx.connect(master);
+  AUD.music = node('gain', { gain: MUSIC_VOL * PREF.musicVol }); AUD.music.connect(master);
+  AUD.sfx = node('gain', { gain: SFX_VOL * PREF.sfxVol }); AUD.sfx.connect(master);
   AUD.song = node('gain', { gain: 1 }); AUD.song.connect(AUD.music);
 
   // spring-ish reverb: a short burst of decaying, slightly "boingy" noise
@@ -581,7 +586,7 @@ const sfxLast = {};
 let gemCombo = 0, gemT = 0;
 
 function sfx(name, arg) {
-  if (!AC || !PREF.sfx || AC.state !== 'running') return;
+  if (!AC || !sfxOn() || AC.state !== 'running') return;
   const t = AC.currentTime, gap = SFX_GAP[name] || SFX_GAP.default;
   if (t - (sfxLast[name] || -1) < gap) return;
   sfxLast[name] = t;
@@ -764,12 +769,13 @@ function crashFx(t) { const f = node('filter', { type: 'highpass', frequency: 30
 let lastMusicLevel = -1, laserHum = null;
 function audioUpdate() {
   if (!AC || !S) return;
-  const level = !PREF.music ? 0 : S.state === 'paused' ? 0.12 : S.state === 'cutin' ? 0.2 : S.state === 'levelup' ? 0.6 : S.impact > 0 || (S.ultFx && S.ultFx.t < 0.8) ? 0.4 : 1;
-  if (level !== lastMusicLevel) { lastMusicLevel = level; AUD.music.gain.setTargetAtTime(MUSIC_VOL * level, AC.currentTime, 0.15); }
-  AUD.sfx.gain.setTargetAtTime(PREF.sfx ? SFX_VOL : 0, AC.currentTime, 0.05);
+  const level = !musicOn() ? 0 : S.settings ? 0.6 : S.state === 'paused' ? 0.12 : S.state === 'cutin' ? 0.2 : S.state === 'levelup' ? 0.6 : S.impact > 0 || (S.ultFx && S.ultFx.t < 0.8) ? 0.4 : 1;
+  const mv = level * PREF.musicVol;
+  if (mv !== lastMusicLevel) { lastMusicLevel = mv; AUD.music.gain.setTargetAtTime(MUSIC_VOL * mv, AC.currentTime, 0.08); }
+  AUD.sfx.gain.setTargetAtTime(SFX_VOL * PREF.sfxVol, AC.currentTime, 0.05);
   MUS.intense = S.state === 'play' && S.enemies.some(e => e.boss && !e.dead);
   // a soft hum while the Pulse Laser is firing
-  const want = PREF.sfx && S.laser && S.state === 'play';
+  const want = sfxOn() && S.laser && S.state === 'play';
   if (want && !laserHum) {
     const g = AC.createGain(); g.gain.value = 0.0001; g.connect(AUD.sfx);
     g.gain.setTargetAtTime(0.035, AC.currentTime, 0.03);
@@ -784,8 +790,7 @@ function audioUpdate() {
   }
 }
 
-function toggleMusic() { PREF.music = !PREF.music; saveMeta(); lastMusicLevel = -1; }
-function toggleSfx() { PREF.sfx = !PREF.sfx; saveMeta(); }
+function setVolume(which, v) { PREF[which] = clamp(v, 0, 1); PREF.music = musicOn(); PREF.sfx = sfxOn(); lastMusicLevel = -1; }
 
 // pause audio when the app is in the background
 document.addEventListener('visibilitychange', () => {
