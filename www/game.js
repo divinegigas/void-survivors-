@@ -689,6 +689,27 @@ function revealPilot() {                      // once per run, when it ends (dea
   if (META.revealed >= SHIP_ORDER.length) return;
   S.newPilot = SHIP_ORDER[META.revealed]; META.revealed++;
 }
+// The reveal cinematic between the end of a run and the results: warning flash, silhouette, "UNLOCKED!"
+const REVEAL = { warn: 0.9, sweep: 2.0, unlock: 3.3, end: 5.0, skip: 1.2 };
+function startReveal() {
+  if (!S.newPilot) return;
+  S.reveal = { t: 0, id: S.newPilot, next: S.state, cues: 0 };
+  S.state = 'reveal';
+}
+function updateReveal(dt) {
+  const r = S.reveal; r.t += dt;
+  S.shake = Math.max(0, S.shake - dt); updateParticles(dt);
+  const cue = (n, at, name, b) => { if (r.cues < n && r.t >= at) { r.cues = n; snd(name); if (b) buzz(b); } };
+  cue(1, REVEAL.warn, 'revealWarn', [40, 60, 40]);
+  cue(2, REVEAL.sweep, 'revealSweep', 60);
+  cue(3, REVEAL.unlock, 'revealUnlock', [30, 30, 90]);
+  if (r.t >= REVEAL.unlock && r.t < REVEAL.unlock + 0.05) S.shake = 0.45;
+  if (r.t >= REVEAL.end) endReveal();
+}
+function endReveal() {
+  if (S.state !== 'reveal') return;
+  S.state = S.reveal.next; S.uiLock = 0.5;
+}
 
 // All modifiers in one place: hangar upgrades + passives.
 function recalcMods() {
@@ -1589,6 +1610,7 @@ function levelComplete() {
   if (S.stage === STAGE_COUNT && META.secret) S.secretOpen = true;
   revealPilot();
   saveMeta();
+  startReveal();
 }
 
 function gameOver(quit) {
@@ -1604,6 +1626,7 @@ function gameOver(quit) {
   if (S.newBest) META.best = S.runT;
   revealPilot();
   saveMeta();
+  startReveal();
 }
 
 // Carry the whole run into the next stage: loadout, levels, pilot level and ultimate all stay.
@@ -1935,6 +1958,7 @@ function update(dt) {
   if (S.armed && (S.armed.t -= dt) <= 0) S.armed = null;
   if (typeof uiTick === 'function') uiTick(dt);
   if (S.state === 'cutin') { S.cutin.t += dt; if (S.cutin.t >= S.cutin.dur) finishCutin(); return; }
+  if (S.state === 'reveal') { updateReveal(dt); return; }
   if (S.state === 'play') {
     let gdt = dt;
     if (S.impact > 0) { S.impact -= dt; gdt = dt * lerp(1, 0.15, clamp(S.impact / CFG.ultImpact, 0, 1)); }   // ultimate impact frame
@@ -2042,6 +2066,7 @@ window.addEventListener('keydown', e => {
   if ((k === 'enter' || k === ' ') && (S.state === 'title' || S.state === 'hangar')) openStages();
   else if ((k === 'enter' || k === ' ') && S.state === 'stages') startGame(S.stage);
   else if ((k === 'enter' || k === ' ') && S.state === 'won' && S.uiLock <= 0 && (S.stage < STAGE_COUNT || S.secretOpen)) nextStage();
+  else if ((k === 'enter' || k === ' ') && S.state === 'reveal' && S.reveal.t > REVEAL.skip) endReveal();
   else if ((k === 'enter' || k === ' ') && (S.state === 'over' || S.state === 'won') && S.uiLock <= 0) openStages();
   if (k === 'h' && (S.state === 'title' || ((S.state === 'over' || S.state === 'won') && S.uiLock <= 0))) openHangar();
 });

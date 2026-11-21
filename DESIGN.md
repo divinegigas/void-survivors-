@@ -261,6 +261,13 @@ Tide, Hive, Lance, Corona, Tempest, Needle, Pulsar). The results screen says "NE
 HANGAR!", and the ship joins the wheel tagged NEW!, still a silhouette (ship and pilot, "PILOT: ???") until you buy
 it with credits. Ships you haven't unlocked aren't in the wheel at all.
 
+**The reveal (≈5s, tap to skip after 1.2s):** when a run unlocks a ship, the results wait for a short cinematic:
+the death sting (a heavy hit and a falling minor line) or the victory fanfare plays as the screen dims; at 0.9s
+hazard stripes slam in with a flashing "NEW PILOT · APPROACHING" and alarm beeps rising into a whoosh; at 2.0s the
+pilot's silhouette sweeps in on a diagonal slab in the ship's colour with speed lines and a "?", and the ship's
+silhouette streaks past (bass hit + crash); at 3.3s a white flash and "UNLOCKED!" slams in with
+"SHIP · NOW IN THE HANGAR" and a fanfare; then a wipe to the results screen.
+
 **Secret stage: Boss Rush.** Beat stage 5 **at full health** to unlock it. The win screen then offers "SECRET STAGE:
 BOSS RUSH!" (continuing the run), and it appears as stage "??" on stage select (head start: 40 level-ups). All 20
 bosses in campaign order (each stage's 3 mini-bosses, then its final boss), the first at 0:12 and then **one every

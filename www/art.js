@@ -1378,7 +1378,7 @@ function drawWorld() {
   }
   ctx.globalAlpha = 1;
 
-  if (!['over', 'title', 'hangar', 'stages'].includes(S.state)) drawPlayer();
+  if (!['over', 'title', 'hangar', 'stages'].includes(S.state) && !(S.state === 'reveal' && S.reveal.next === 'over')) drawPlayer();
 
   drawEnemyShots();
 
@@ -2296,6 +2296,67 @@ function drawCutin() {
   }
 }
 
+// --- NEW PILOT reveal: warning flash, a silhouette sweeping in on slabs, then UNLOCKED! ---------
+function drawReveal() {
+  const r = S.reveal; if (!r) return;
+  const t = r.t, id = r.id, ship = SHIPS[id], R = REVEAL;
+  dim(Math.min(0.75, t * 1.5));
+  // 1) hazard-stripe warning: NEW PILOT APPROACHING
+  const wk = clamp((t - R.warn) / 0.25, 0, 1), wOut = easeOut(clamp((t - R.sweep + 0.1) / 0.3, 0, 1));
+  if (wk > 0 && wOut < 1) {
+    const flash = Math.floor((t - R.warn) * 6) % 2 === 0;
+    for (const [yy, dir] of [[H * 0.3, 1], [H * 0.62, -1]]) {
+      ctx.save(); ctx.translate(dir * (1 - easeOut(wk)) * W + dir * wOut * W * 1.4, yy); ctx.rotate(-0.08 * dir);
+      ctx.fillStyle = INK; ctx.fillRect(-W, -18, W * 3, 36);
+      ctx.save(); ctx.beginPath(); ctx.rect(-W, -14, W * 3, 28); ctx.clip();
+      for (let x = -W + ((t * 120 * dir) % 40); x < W * 2; x += 40) { ctx.fillStyle = COL.gold; path([x, -14, x + 20, -14, x + 4, 14, x - 16, 14]); ctx.fill(); }
+      ctx.restore(); ctx.restore();
+    }
+    ctx.save(); ctx.globalAlpha = 1 - wOut;
+    if (flash) { ctx.fillStyle = 'rgba(255,59,59,0.18)'; ctx.fillRect(0, 0, W, H); }
+    burstTitle('NEW PILOT', W / 2, H * 0.42, 40 * (2 - easeOutBack(wk)), COL.gold, COL.red);
+    slant(W / 2 - 120, H * 0.48, 240, 30, flash ? COL.red : PAPER, 4, 10);
+    plainText('APPROACHING', W / 2, H * 0.48 + 16, 20, flash ? PAPER : INK);
+    ctx.restore();
+  }
+  // 2) the silhouette sweeps across on diagonal slabs, with speed lines
+  const sk = clamp((t - R.sweep) / 0.45, 0, 1);
+  if (sk > 0) {
+    const se = easeOutBack(sk), out = easeOut(clamp((t - R.end + 0.35) / 0.35, 0, 1));
+    ctx.save(); ctx.globalAlpha = 0.4 * (1 - out); ctx.strokeStyle = PAPER; ctx.lineWidth = 2; ctx.beginPath();
+    for (let i = 0; i < 26; i++) { const y = (i * 53) % H, x0 = W - ((t * 900 + i * 97) % (W * 2)); ctx.moveTo(x0, y); ctx.lineTo(x0 + 80 + (i % 4) * 30, y); }
+    ctx.stroke(); ctx.restore();
+    ctx.save(); ctx.translate((1 - se) * W * 1.3 - out * W * 1.3, 0);
+    slab([0, H * 0.16, W, H * 0.1, W, H * 0.66, 0, H * 0.74], ship.color, true);
+    slab([0, H * 0.7, W, H * 0.62, W, H * 0.67, 0, H * 0.76], INK, false);
+    ctx.save(); path([0, H * 0.16, W, H * 0.1, W, H * 0.66, 0, H * 0.74]); ctx.clip();
+    const ph = H * 0.62;
+    drawPilot(id, 'normal', W / 2 - ph * 0.42 + (1 - se) * 60, H * 0.72 - ph, ph, true);
+    ctx.restore();
+    inkText('?', W * 0.78, H * 0.3, 80, PAPER, 'center', FONT_D, 8);
+    ctx.restore();
+    // the ship streaks past underneath
+    const fx = lerp(-60, W + 80, clamp((t - R.sweep - 0.1) / 0.9, 0, 1));
+    if (t - R.sweep < 1.1) { drawFlame(fx - 18, H * 0.8, 1.4); ctx.save(); ctx.translate(fx, H * 0.8); ctx.rotate(Math.PI / 2); drawShip(0, 0, 1.6, ship, true); ctx.restore(); }
+  }
+  // 3) NEW PILOT UNLOCKED!
+  const uk = clamp((t - R.unlock) / 0.3, 0, 1);
+  if (uk > 0) {
+    if (t - R.unlock < 0.07) { ctx.fillStyle = PAPER; ctx.fillRect(0, 0, W, H); }
+    const out = easeOut(clamp((t - R.end + 0.35) / 0.35, 0, 1));
+    ctx.save(); ctx.translate(W / 2 + out * W, H * 0.82); ctx.rotate(-0.08);
+    const sc = 2.4 - 1.4 * easeOutBack(uk); ctx.scale(sc, sc);
+    burstTitle('UNLOCKED!', 0, 0, 44, COL.gold, COL.red);
+    ctx.restore();
+    const nk = easeOutBack(clamp((t - R.unlock - 0.25) / 0.3, 0, 1));
+    ctx.save(); ctx.translate(-(1 - nk) * W - out * W, 0);
+    slant(14, H * 0.88, W - 28, 40, PAPER, 5, 12);
+    plainText(`${ship.name} · NOW IN THE HANGAR`, W / 2, H * 0.88 + 21, 18, INK);
+    ctx.restore();
+  }
+  if (t > R.skip) { inkText('TAP TO CONTINUE', W / 2, H - 14, 11, COL.dim, 'center', FONT_D, 2.5); addButton('revealSkip', { x: 0, y: 0, w: W, h: H }, endReveal); }
+}
+
 // --- screen wipe between menus ------------------------------------------------
 function drawWipe() {
   if (UIM.wipe <= 0) return;
@@ -2350,6 +2411,7 @@ function render() {
   else if (S.state === 'levelup') drawLevelUp();
   else if (S.state === 'paused') drawPaused();
   else if (S.state === 'cutin') drawCutin();
+  else if (S.state === 'reveal') drawReveal();
   else if (S.state === 'stages') drawStages();
   if (S.state === 'play') drawStageIntro();
   else if (S.state === 'over' || S.state === 'won') drawGameOver();

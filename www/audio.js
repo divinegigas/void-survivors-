@@ -631,8 +631,13 @@ const SFX = {
   ult:     (t, id) => ultBlast(t, id),
   ultup:   (t) => ultLevelUpSting(t),
   warning: (t) => { for (let i = 0; i < 4; i++) blip(t + i * 0.36, 'square', i % 2 ? 330 : 440, 0, 0.3, 0.05); },
-  victory: (t) => [64, 68, 71, 76, 80, 83, 88].forEach((m, i) => blip(t + i * 0.09, 'triangle', mf(m), 0, 0.4, 0.07)),
-  gameover:(t) => [64, 63, 62, 52].forEach((m, i) => blip(t + i * 0.22, 'sawtooth', mf(m), 0, 0.35, 0.05)),
+  victory: (t) => victoryFanfare(t),
+  gameover:(t) => defeatSting(t),
+  revealWarn:   (t) => { for (let i = 0; i < 3; i++) { blip(t + i * 0.2, 'square', i % 2 ? 660 : 880, 0, 0.16, 0.06); }
+                         const w = hiss(t + 0.3, 'bandpass', 300, 0.8, 0.12, 3); w.frequency.exponentialRampToValueAtTime(6000, t + 1.05); },
+  revealSweep:  (t) => { blip(t, 'sine', 140, 40, 0.5, 0.4); crashFx(t);
+                         const f = hiss(t, 'bandpass', 3000, 0.5, 0.12, 2); f.frequency.exponentialRampToValueAtTime(400, t + 0.45); },
+  revealUnlock: (t) => { cardPick(t, 'ult'); levelUpFanfare(t + 0.05); blip(t, 'sine', 110, 35, 0.6, 0.4); },
   click:   (t) => blip(t, 'square', 1500, 1200, 0.025, 0.03),
 };
 // LEVEL UP: whoosh riser -> sparkling run up the scale -> big shimmering chord + bell + thump
@@ -734,6 +739,22 @@ function ultLevelUpSting(t) {
     osc('sawtooth', mf(m), t + 0.5 + i * 0.12, 0.5, f, -6); osc('sawtooth', mf(m + 12), t + 0.5 + i * 0.12, 0.5, f, 6);
   });
   blip(t + 0.98, 'sine', 110, 35, 0.7, 0.45); crashFx(t + 0.98);
+}
+// RUN OVER: a heavy hit, a falling minor line and a low drone fading out
+function defeatSting(t) {
+  blip(t, 'sine', 120, 30, 0.9, 0.45); hiss(t, 'lowpass', 500, 0.6, 0.25);
+  const f = node('filter', { type: 'lowpass', frequency: 1400 }); f.connect(env(AUD.hallIn, t, 0.08, 0.01, 0.6, 0.6));
+  [64, 63, 60, 55, 52].forEach((m, i) => { osc('sawtooth', mf(m), t + 0.15 + i * 0.2, 0.3, f, -7); osc('sawtooth', mf(m - 12), t + 0.15 + i * 0.2, 0.3, f, 7); });
+  const d = env(AUD.sfx, t + 1.1, 0.12, 0.2, 0.8, 0.5); osc('triangle', mf(40), t + 1.1, 2, d); osc('triangle', mf(47), t + 1.1, 2, d);
+}
+// STAGE CLEAR: drum hit, a rising run and a big major chord with a bell on top
+function victoryFanfare(t) {
+  blip(t, 'sine', 130, 45, 0.4, 0.4); crashFx(t);
+  [64, 68, 71, 76, 80, 83, 88].forEach((m, i) => blip(t + i * 0.07, 'triangle', mf(m), 0, 0.3, 0.08));
+  const t2 = t + 0.55, f = node('filter', { type: 'lowpass', frequency: 3500 }); const g = env(AUD.sfx, t2, 0.08, 0.02, 0.6, 0.5); f.connect(g); g.connect(AUD.hallIn);
+  for (const m of [52, 59, 64, 68, 71, 76]) { osc('sawtooth', mf(m), t2, 1.8, f, -6); osc('sawtooth', mf(m), t2, 1.8, f, 6); }
+  const bell = env(AUD.hallIn, t2, 0.12, 0.002, 0.5); osc('sine', mf(88), t2, 1.6, bell);
+  blip(t2, 'sine', 110, 40, 0.5, 0.35); crashFx(t2);
 }
 function crashFx(t) { const f = node('filter', { type: 'highpass', frequency: 3000 }); f.connect(env(AUD.sfx, t, 0.15, 0.002, 0.6)); noise(t, 1.5, f); }
 
