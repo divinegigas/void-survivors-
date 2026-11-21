@@ -595,7 +595,7 @@ function songLevel2c() {
                 lead2: pass ? blues[i] : null, gtr: pass ? null : [[4, 1, r + 12, 1], [12, 1, r + 12, 1]] });
   }
   for (let i = 0; i < 4; i++) bars.push({ drums: 'half', pad: [[0, 16, prog[i * 2][1]]], sbass: [[0, 16, prog[i * 2][0]]], bell: [[0, 8, 79 - i * 2], [8, 8, 74]] });
-  return { bpm: 174, bars, loop, gain: 1.3 };
+  return { bpm: 174, bars, loop, gain: 1.8 };
 }
 
 // STAGE 3 · "KELP CATHEDRAL": slow organ-and-wah psychedelia in A dorian, 80 BPM
@@ -675,7 +675,7 @@ function songLevel5b() {
     bars.push({ bpm: 150, drums: i === 7 ? 'epicF' : 'epic', pad: i % 2 ? null : [[0, 32, c]], harp: { notes: c.map(m => m + 12 * pass), div: 1 }, brass: theme[i],
                 gtr: eighths(r + 12, 8), bass: [0, 4, 8, 12].map(st => [st, 4, r]), hit: i === 0 ? [[0, c]] : null });
   }
-  return { bpm: 150, bars, loop, gain: 1.35 };
+  return { bpm: 150, bars, loop, gain: 1.45 };
 }
 
 // STAGE 5 · "LAST WING": a harpsichord toccata (84 BPM) that erupts into a 176 BPM final battle, G minor
