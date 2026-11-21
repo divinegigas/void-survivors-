@@ -43,6 +43,7 @@ const CFG = {
   signatureCooldown: 0.8,     // a ship's own weapon fires 20% faster than the same weapon picked up later (1 = no bonus)
   rarityWeights: { common: 4, uncommon: 2, rare: 1 },   // common is 2x as likely as uncommon, which is 2x rare
   shipCost: { common: 300, uncommon: 900, rare: 2000 }, // credits to unlock a ship, by its weapon's tier
+  shipUnlockStage: { common: 1, uncommon: 2, rare: 3 }, // beat a boss on this stage (or later) to earn a ship of that tier
   upgradeCostMul: 3,          // multiplies every Hangar upgrade price
   deflectorRecharge: [0, 40, 32, 25, 19, 14],            // Deflector Shield recharge seconds per Hangar level
   maxLevel: 5,                // max level for weapons and most passives
@@ -682,12 +683,16 @@ if (META.revealed === undefined) {            // older saves: everything you own
   META.revealed = fresh ? 1 : Math.min(SHIP_ORDER.length, last + 2); saveMeta();
 }
 const shipRevealed = id => !!META.ships[id] || SHIP_ORDER.indexOf(id) < META.revealed;
-function revealPilot() {                      // once per run, when it ends, if you beat at least one boss: one more ship in the Hangar
-  if (S.revealDone) return; S.revealDone = true;
-  if (!(S.bossKills > 0)) return;              // you have to beat at least the run's first boss to earn a ship
+// One ship per run, when it ends or clears a stage. You must have beaten a boss on a late enough stage:
+// common ships need a stage 1 boss, uncommon a stage 2 boss, rare a stage 3 boss (CFG.shipUnlockStage).
+function revealPilot() {
+  if (S.revealDone || !(S.bossStage > 0)) return;
   while (META.revealed < SHIP_ORDER.length && META.ships[SHIP_ORDER[META.revealed]]) META.revealed++;
   if (META.revealed >= SHIP_ORDER.length) return;
-  S.newPilot = SHIP_ORDER[META.revealed]; META.revealed++;
+  const next = SHIP_ORDER[META.revealed], need = CFG.shipUnlockStage[shipTier(next)] || 1;
+  if (S.bossStage < need) { S.revealNeed = { stage: need, tier: shipTier(next) }; return; }   // not yet: the results say what to beat
+  S.revealDone = true; S.revealNeed = null;
+  S.newPilot = next; META.revealed++;
 }
 // The reveal cinematic between the end of a run and the results: warning flash, silhouette, "UNLOCKED!"
 const REVEAL = { warn: 0.9, sweep: 2.0, unlock: 3.3, end: 5.0, skip: 1.2 };
@@ -1452,7 +1457,7 @@ function killEnemy(e) {
   e.dead = true;
   S.kills++;
   const big = e.boss;
-  if (big) S.bossKills = (S.bossKills || 0) + 1;
+  if (big) { S.bossKills = (S.bossKills || 0) + 1; S.bossStage = Math.max(S.bossStage || 0, Math.min(STAGE_COUNT, S.stage)); }
   comicKill(e, big);
   snd(big ? 'bossDie' : 'kill', e.r);
   sparks(e.x, e.y, e.color, big ? 80 : e.type === 'gunner' ? 30 : 14);

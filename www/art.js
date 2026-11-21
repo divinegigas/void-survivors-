@@ -2177,9 +2177,9 @@ function drawGameOver() {
   if (won) inkText(rush ? 'EVERY HORROR, BEATEN AGAIN.' : finale ? 'THE VOID IS SILENT. YOU SURVIVED.' : `${ENEMY[stageDef().final].name} DESTROYED!`, W / 2, cy + 40, 15, PAPER);
   if (won && !finale && !rush) inkText(`Your loadout carries on · +1 weapon and +1 support slot`, W / 2, H * 0.74 - 16, 11, COL.dim, 'center', FONT_B, 3);
   if (S.secretOpen) inkText(S.secretFound ? 'FLAWLESS! A SECRET STAGE HAS OPENED...' : 'THE SECRET STAGE AWAITS...', W / 2, H * 0.74 - 16, 13, blinkOn() ? COL.gold : COL.red, 'center', FONT_D, 3);
-  if (S.newPilot) {
-    inkText(`NEW SHIP UNLOCKED: ${SHIPS[S.newPilot].name.toUpperCase()} · SEE THE HANGAR!`, W / 2, H * 0.74 - ((won && !finale && !rush) || S.secretOpen ? 34 : 16), 13, blinkOn() ? COL.gold : PAPER, 'center', FONT_D, 3);
-  }
+  const npY = H * 0.74 - ((won && !finale && !rush) || S.secretOpen ? 34 : 16);
+  if (S.newPilot) inkText(`NEW SHIP UNLOCKED: ${SHIPS[S.newPilot].name.toUpperCase()} · SEE THE HANGAR!`, W / 2, npY, 13, blinkOn() ? COL.gold : PAPER, 'center', FONT_D, 3);
+  else if (S.revealNeed) inkText(`BEAT A STAGE ${S.revealNeed.stage} BOSS TO UNLOCK ${TIER[S.revealNeed.tier].name} SHIPS`, W / 2, npY, 12, TIER[S.revealNeed.tier].color, 'center', FONT_D, 3);
   const rows = [['STAGE', rush ? 'SECRET' : `${S.stage} / ${STAGE_COUNT}`], ['RUN TIME', fmtTime(S.runT)], ['LEVEL', String(S.level)], ['KILLS', String(S.kills)], ['BEST', fmtTime(META.best)]];
   const py = cy + 62;
   ctx.save(); ctx.translate(-(1 - e) * W, 0);
