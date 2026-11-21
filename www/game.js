@@ -48,7 +48,8 @@ const CFG = {
   deflectorRecharge: [0, 40, 32, 25, 19, 14],            // Deflector Shield recharge seconds per Hangar level
   maxLevel: 5,                // max level for weapons and most passives
   upgradeChoices: 3,
-  postLevelUpInvuln: 0.8,     // grace after picking an upgrade (finger needs to find the ship)
+  postLevelUpInvuln: 1.5,     // grace after picking an upgrade (finger needs to find the ship)
+  postPauseInvuln: 1.5,       // grace after resuming from the pause menu
 
   xp: {
     gainRate: 0.5,            // fraction of each gem's XP you actually get (0.5 = half)
@@ -2005,7 +2006,7 @@ function dragSlider(sl, pt) { sl.set(clamp((pt.x - sl.x0) / (sl.x1 - sl.x0), 0, 
 
 function openHangar() { newGame('hangar'); S.uiLock = 0.15; }
 function openStages() { newGame('stages'); S.uiLock = 0.15; }
-function resume() { S.state = 'play'; input.dx = input.dy = 0; }
+function resume() { S.state = 'play'; input.dx = input.dy = 0; S.p.invuln = Math.max(S.p.invuln, CFG.postPauseInvuln); }
 
 function startGame(stage) {
   stage = stage === SECRET_STAGE && META.secret ? SECRET_STAGE : clamp(stage || META.lastStage || 1, 1, Math.min(STAGE_COUNT, META.unlocked || 1));
