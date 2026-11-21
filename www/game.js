@@ -87,6 +87,7 @@ const CFG = {
     fire: 0.15,               // enemies fire 15% more often per stage
     credits: 0,               // extra bounty per stage (0: later stages already have far more to kill)
   },
+  trackUnlockPlays: [0, 10, 20],   // plays of a stage needed for its 1st, 2nd and 3rd music track
   rush: {                     // the secret Boss Rush stage
     first: 12,                // first boss arrives at 0:12
     gap: 60,                  // then one every minute, whether or not the last one is dead
@@ -715,10 +716,38 @@ function revealPilot() {
 }
 // The reveal cinematic between the end of a run and the results: warning flash, silhouette, "UNLOCKED!"
 const REVEAL = { warn: 0.9, sweep: 2.0, unlock: 3.3, end: 5.0, skip: 1.2 };
+// Each stage has 3 tracks: the first from the start, then one more after 10 and 20 plays of that stage.
+const TRACKS = {
+  1: [['level1', 'Hive Surf'], ['level1b', 'Larva Stomp'], ['level1c', 'Swarm Protocol']],
+  2: [['level2', 'Warp Rider'], ['level2b', 'Lightspeed Debt'], ['level2c', 'Tachyon Blues']],
+  3: [['level3', 'Abyssal Drift'], ['level3b', 'Kelp Cathedral'], ['level3c', 'Pressure Bloom']],
+  4: [['level4', 'Heart of the Beast'], ['level4b', 'Arterial Engine'], ['level4c', 'Clot']],
+  5: [['level5', 'Seraph'], ['level5b', 'Halo Requiem'], ['level5c', 'Last Wing']],
+};
+META.plays = META.plays || {}; META.trackSel = META.trackSel || {}; META.trackSeen = META.trackSeen || {};
+const tracksOpen = st => CFG.trackUnlockPlays.filter(n => (META.plays[st] || 0) >= n).length;
+const trackIdx = st => Math.min(META.trackSel[st] || 0, tracksOpen(st) - 1);
+const stageMusic = st => (TRACKS[st] ? TRACKS[st][trackIdx(st)][0] : 'level1');
+function countPlay(st) { if (TRACKS[st]) { META.plays[st] = (META.plays[st] || 0) + 1; saveMeta(); } }
+function cycleTrack(st) { META.trackSel[st] = (trackIdx(st) + 1) % tracksOpen(st); saveMeta(); music('start', stageMusic(st)); }
+// After a run: a ship unlock and/or new tracks get their own reveal, one after another.
 function startReveal() {
-  if (!S.newPilot) return;
-  S.reveal = { t: 0, id: S.newPilot, next: S.state, cues: 0 };
-  S.state = 'reveal';
+  const q = [];
+  if (S.newPilot) q.push({ kind: 'pilot', id: S.newPilot });
+  for (const st in TRACKS) {
+    const open = tracksOpen(st), seen = META.trackSeen[st] || 1;
+    for (let i = seen; i < open; i++) q.push({ kind: 'track', stage: +st, idx: i });
+    if (open > seen) { META.trackSeen[st] = open; META.trackSel[st] = open - 1; }   // the new track is now the stage's track
+  }
+  saveMeta();
+  if (!q.length) return;
+  S.revealQ = q; S.revealNext = S.state;
+  nextReveal();
+}
+function nextReveal() {
+  const r = S.revealQ.shift();
+  S.reveal = Object.assign({ t: 0, cues: 0, next: S.revealNext }, r);
+  S.state = 'reveal'; UIM.t = 0;
 }
 function updateReveal(dt) {
   const r = S.reveal; r.t += dt;
@@ -726,12 +755,15 @@ function updateReveal(dt) {
   const cue = (n, at, name, b) => { if (r.cues < n && r.t >= at) { r.cues = n; snd(name); if (b) buzz(b); } };
   cue(1, REVEAL.warn, 'revealWarn', [40, 60, 40]);
   cue(2, REVEAL.sweep, 'revealSweep', 60);
+  if (r.kind === 'track' && r.cues === 2 && !r.playing) { r.playing = true; music('start', TRACKS[r.stage][r.idx][0]); }   // play the new track
   cue(3, REVEAL.unlock, 'revealUnlock', [30, 30, 90]);
   if (r.t >= REVEAL.unlock && r.t < REVEAL.unlock + 0.05) S.shake = 0.45;
   if (r.t >= REVEAL.end) endReveal();
 }
 function endReveal() {
   if (S.state !== 'reveal') return;
+  if (S.reveal.playing) music('stop');
+  if (S.revealQ && S.revealQ.length) { nextReveal(); return; }
   S.state = S.reveal.next; S.uiLock = 0.5;
 }
 
@@ -1676,7 +1708,8 @@ function nextStage() {
   if (S.ult) S.ult.cd = 0;
   input.dx = input.dy = 0;
   META.lastStage = S.stage; saveMeta();
-  music('start', stageDef().music);
+  if (S.stage <= STAGE_COUNT) countPlay(S.stage);
+  music('start', stageMusic(Math.min(S.stage, STAGE_COUNT)));
 }
 
 // ============================================================================
@@ -1851,7 +1884,7 @@ function gameUpdate(dt) {
     if (S.t >= ev.t) {
       spawnBoss(ev.type, ev.last); S.ev++; S.warned = false;
       if (ev.last) S.queenUp = true;
-      if (isRush() && ev.stage !== S.rushStage) { S.rushStage = ev.stage; music('start', STAGES[ev.stage].music); }   // its home stage's music and sky
+      if (isRush() && ev.stage !== S.rushStage) { S.rushStage = ev.stage; music('start', stageMusic(ev.stage)); }   // its home stage's music and sky
     }
   }
   if (S.victoryT > 0 && (S.victoryT -= dt) <= 0) { levelComplete(); return; }
@@ -2022,7 +2055,11 @@ function buttonAt(pt) {
 
 // --- Settings (an overlay on the title or pause screen) ---------------------------
 function openSettings() { S.settings = { page: 'main' }; S.uiLock = 0.15; }
-function closeSettings() { saveMeta(); S.settings = null; S.uiLock = 0.15; }
+function closeSettings() {
+  saveMeta();
+  if (S.settings.previewed) { if (S.state === 'paused') music('start', stageMusic(Math.min(S.stage, STAGE_COUNT))); else music('stop'); }
+  S.settings = null; S.uiLock = 0.15;
+}
 function resetProgress() {             // wipes the save but keeps your sound settings, then restarts the game
   const keep = { audio: META.audio };
   try { localStorage.removeItem('starburn.best'); localStorage.setItem(META_KEY, JSON.stringify(keep)); } catch (e) {}
@@ -2042,7 +2079,8 @@ function startGame(stage) {
   META.lastStage = stage; saveMeta();
   newGame('play', stage);
   S.intro = 3.2;
-  music('start', stageDef().music);
+  if (stage <= STAGE_COUNT) countPlay(stage);
+  music('start', stageMusic(Math.min(stage, STAGE_COUNT)));
   if (stage > 1) {                      // skipping ahead: a head start instead of a carried loadout
     S.pending = CFG.headStart * (stage - 1);
     S.level = 1 + S.pending;

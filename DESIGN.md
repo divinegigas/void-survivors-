@@ -433,3 +433,11 @@ The **systems, numbers, content and tone stay the same.** What changes is the ca
   Clearing a stage resets it. Never shown to the player.
 - **Results screen:** under the bounty total, a box "SPEND IT: N SHIP UPGRADES READY ›" (or "SAVE UP FOR SHIP
   UPGRADES ›") jumps straight to the ship's Hangar upgrades.
+- **Music unlocks:** each stage has 3 original tracks (`TRACKS` in game.js, songs in audio.js):
+  1 Hive Surf / Larva Stomp / Swarm Protocol · 2 Warp Rider / Lightspeed Debt / Tachyon Blues ·
+  3 Abyssal Drift / Kelp Cathedral / Pressure Bloom · 4 Heart of the Beast / Arterial Engine / Clot ·
+  5 Seraph / Halo Requiem / Last Wing. Starting a stage counts a play; the 2nd track unlocks at 10 plays of that
+  stage and the 3rd at 20 (`trackUnlockPlays`). At the end of that run a "NEW TRACK INCOMING" reveal plays (after
+  any ship reveal): hazard stripes, a spinning record and equalizer while the new song plays, then "UNLOCKED!".
+  The new track becomes the stage's track; Settings → STAGE MUSIC lets you cycle (and preview) unlocked tracks and
+  shows plays until the next one. The Boss Rush uses each stage's chosen track.

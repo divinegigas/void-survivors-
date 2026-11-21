@@ -506,6 +506,201 @@ function songLevel5() {
 const SONGS = { level1: songLevel1, level2: songLevel2, level3: songLevel3, level4: songLevel4, level5: songLevel5 };
 
 // ============================================================================
+// Unlockable tracks: two more per stage (unlocked after 10 and 20 plays of that stage).
+// All original. Same instruments and grooves as the stage's first track, new tunes.
+// ============================================================================
+Object.assign(GROOVES, {
+  punk:   { k: 'x.......x.x.....', s: '....X.......X...', h: 'x.x.x.x.x.x.x.x.' },
+  punkF:  { k: 'x.......x.......', s: '....X...X.X.XXXX', h: 'x.x.x.x.........' },
+  dnb:    { k: 'X.........x.....', s: '....X.......X...', h: 'x.xxx.xxx.xxx.xx' },
+  dnb2:   { k: 'X.........xx....', s: '....X..x....X...', h: 'xxxxxxxxxxxxxxxx', c: 'x...............' },
+  stoner: { k: 'x.....x...x.....', s: '....X.......X...', r: 'x...x...x...x...' },
+  sludge: { k: 'X...............', s: '........X.......', c: 'x...............' },
+  march:  { k: 'x...x...x...x...', s: '..x...x...xX..XX', t: 'x.......x.......' },
+});
+const chord = (root, kind) => ({ m: [0, 3, 7, 12], M: [0, 4, 7, 12], m7: [0, 3, 7, 10], d7: [0, 4, 7, 10], s4: [0, 5, 7, 12] })[kind].map(k => root + k);
+const eighths = (root, accentEvery) => [0, 2, 4, 6, 8, 10, 12, 14].map(st => [st, 2, root, st % (accentEvery || 8) === 0 ? 0 : 1]);
+
+// STAGE 1 · "LARVA STOMP": surf-punk in A minor with a metal bridge and a wobble drop, 152 BPM
+function songLevel1b() {
+  const bars = [], A = 45;
+  bars.push({ drums: 'intro', gtr: [[0, 16, A, 0]] });
+  bars.push({ drums: 'intro', lead: [[4, 2, 64], [6, 2, 67], [8, 4, 69], [12, 4, 72]] });
+  const loop = bars.length;
+  const roots = [45, 41, 48, 43, 45, 41, 40, 45];
+  const mel = [
+    [[0,2,69],[2,2,72],[4,4,76],[8,2,74],[10,2,72],[12,4,71]], [[0,6,69],[6,2,68],[8,8,69]],
+    [[0,2,72],[2,2,76],[4,4,79],[8,4,77],[12,4,76]], [[0,8,74],[8,4,72],[12,4,71]],
+    [[0,2,76],[2,2,77],[4,4,76],[8,2,74],[10,2,72],[12,4,74]], [[0,4,72],[4,4,71],[8,8,69]],
+    [[0,2,68],[2,2,71],[4,4,74],[8,4,77],[12,4,76]], [[0,16,69]],
+  ];
+  for (let pass = 0; pass < 2; pass++) for (let i = 0; i < 8; i++)
+    bars.push({ drums: i === 7 ? 'punkF' : 'punk', gtr: eighths(roots[i], 4), lead: pass ? mel[i].map(([s, l, m]) => [s, l, m + 12 * (i % 2)]) : mel[i],
+                bass: [0, 4, 8, 12].map(st => [st, 4, roots[i] - 12 + (st === 8 ? 7 : 0)]) });
+  const chug = (r, hi) => [[0,1,r,1],[1,1,r,1],[2,2,hi,0],[4,1,r,1],[5,1,r,1],[6,2,hi - 1,0],[8,1,r,1],[9,1,r,1],[10,1,r,1],[11,1,r,1],[12,2,hi + 2,0],[14,2,hi,0]];
+  [[45, 48], [45, 50], [41, 45], [40, 44]].forEach(([r, hi], i) => { for (let k = 0; k < 2; k++) bars.push({ drums: k ? 'metal2' : 'metal', gtr: chug(r, hi), bass: chug(r - 12, hi - 12).map(([s, l, m]) => [s, l, m]) }); });
+  const wob = [[[0,8,33,2],[8,8,33,4]], [[0,4,33,8],[4,4,36,2],[8,8,31,4]], [[0,8,29,3],[8,8,28,6]], [[0,12,33,4],[12,4,33,1]]];
+  wob.forEach((w, i) => bars.push({ drums: i === 3 ? 'build' : 'dub', wob: w, gtr: i % 2 ? null : [[0, 4, A, 0]] }));
+  return { bpm: 152, bars, loop };
+}
+
+// STAGE 1 · "SWARM PROTOCOL": half-time dubstep metal in D minor with a soaring synth hook, 140 BPM
+function songLevel1c() {
+  const bars = [], D = 38;
+  bars.push({ arp: { notes: chord(62, 'm'), div: 2 }, riser: [[0, 16]] });
+  bars.push({ drums: 'build', arp: { notes: chord(62, 'm'), div: 1 }, riser: [[0, 16]] });
+  const loop = bars.length;
+  const wobs = [[[0,6,26,2],[6,2,26,8],[8,8,29,4]], [[0,8,26,3],[8,4,31,6],[12,4,29,2]], [[0,6,26,2],[6,2,24,8],[8,8,26,4]], [[0,4,33,8],[4,4,31,4],[8,8,29,2]]];
+  const hook = [[[0,4,74],[4,2,77],[6,2,76],[8,8,74]], [[0,4,72],[4,4,70],[8,8,69]], [[0,4,74],[4,2,77],[6,2,79],[8,6,81],[14,2,79]], [[0,8,77],[8,4,76],[12,4,74]]];
+  for (let i = 0; i < 8; i++) bars.push({ drums: 'dub', wob: wobs[i % 4], gtr: [[0, 2, D, 0], [3, 1, D, 1], [6, 2, D + 3, 0], [10, 2, D, 1]], lead2: i >= 4 ? hook[i % 4] : null });
+  const gal = (a, b) => [[0,1,D,1],[2,1,D,1],[3,1,D,1],[4,1,D,1],[6,1,D,1],[7,1,D,1],[8,2,a,0],[10,1,D,1],[11,1,D,1],[12,2,b,0],[14,2,D + 1,0]];
+  [[41, 43], [41, 44], [43, 46], [44, 43]].forEach(([a, b], i) => { for (let k = 0; k < 2; k++) bars.push({ drums: k ? 'metal2' : 'metal', gtr: gal(a, b), bass: gal(a, b).map(([s, l, m]) => [s, l, m - 12]), lead2: hook[(i * 2 + k) % 4].map(([s, l, m]) => [s, l, m + 12 * k]) }); });
+  for (let i = 0; i < 4; i++) bars.push({ drums: 'half', pad: [[0, 16, chord(i % 2 ? 58 : 62, i % 2 ? 'M' : 'm')]], sbass: [[0, 16, i % 2 ? 34 : 26]], riser: i === 3 ? [[0, 16]] : null });
+  return { bpm: 140, bars, loop, gain: 1.15 };
+}
+
+// STAGE 2 · "LIGHTSPEED DEBT": 200 BPM synthwave speed metal in F# minor
+function songLevel2b() {
+  const bars = [], F = 42;
+  const ch = [chord(66, 'm'), chord(62, 'M'), chord(57, 'M'), chord(64, 'M')], roots = [42, 38, 45, 40];
+  bars.push({ arp: { notes: ch[0], div: 1 }, riser: [[0, 16]] });
+  bars.push({ drums: 'warpIn', arp: { notes: ch[0], div: 1 }, sbass: [0, 4, 8, 12].map(st => [st, 2, 30]) });
+  const loop = bars.length;
+  const gal = r => [[0,1,r,1],[2,1,r,1],[3,1,r,1],[4,1,r,1],[6,1,r,1],[7,1,r,1],[8,1,r,1],[10,1,r,1],[11,1,r,1],[12,2,r + 3,0],[14,2,r + 5,0]];
+  const mel = [[[0,4,78],[4,4,81],[8,4,80],[12,4,78]], [[0,8,74],[8,4,76],[12,4,78]], [[0,4,81],[4,4,85],[8,4,83],[12,4,81]], [[0,12,80],[12,4,76]]];
+  for (let pass = 0; pass < 2; pass++) for (let i = 0; i < 8; i++) {
+    const k = i % 4;
+    bars.push({ drums: i === 7 ? 'fill' : pass ? 'speed2' : 'speed', gtr: gal(roots[k]), arp: { notes: ch[k], div: pass ? 1 : 2 },
+                sbass: [0, 2, 4, 6, 8, 10, 12, 14].map(st => [st, 2, roots[k] - 12 + (st % 4 === 2 ? 12 : 0)]), lead2: pass || i >= 4 ? mel[k] : null });
+  }
+  for (let i = 0; i < 4; i++) bars.push({ drums: 'half', brass: [[[0,8,73],[8,8,74]], [[0,8,76],[8,8,73]], [[0,8,71],[8,8,73]], [[0,16,78]]][i],
+                                          pad: [[0, 16, ch[i]]], sbass: [[0, 16, roots[i] - 12]], riser: i === 3 ? [[8, 8]] : null });
+  return { bpm: 200, bars, loop, gain: 1.3 };
+}
+
+// STAGE 2 · "TACHYON BLUES": drum & bass with a reese bass and a bluesy synth line in G minor, 174 BPM
+function songLevel2c() {
+  const bars = [], G = 43;
+  bars.push({ drums: null, pad: [[0, 16, chord(55, 'm7')]], riser: [[0, 16]] });
+  bars.push({ drums: 'warpIn', pad: [[0, 16, chord(55, 'm7')]], sbass: [[0, 8, 31], [8, 8, 34]] });
+  const loop = bars.length;
+  const prog = [[31, chord(55, 'm7')], [31, chord(55, 'm7')], [36, chord(60, 'm7')], [34, chord(58, 'M')], [31, chord(55, 'm7')], [29, chord(53, 'M')], [38, chord(62, 'd7')], [31, chord(55, 'm7')]];
+  const blues = [[[0,3,79],[3,1,77],[4,2,74],[6,2,77],[8,4,79],[12,4,82]], [[0,2,81],[2,2,82],[4,4,81],[8,8,79]],
+                 [[0,4,84],[4,2,82],[6,2,79],[8,8,77]], [[0,3,79],[3,1,77],[4,4,74],[8,8,70]],
+                 [[0,2,74],[2,2,77],[4,2,79],[6,2,80],[8,8,79]], [[0,4,77],[4,4,74],[8,8,72]],
+                 [[0,4,74],[4,4,78],[8,4,81],[12,4,84]], [[0,16,79]]];
+  for (let pass = 0; pass < 2; pass++) for (let i = 0; i < 8; i++) {
+    const [r, c] = prog[i];
+    bars.push({ drums: i === 7 ? 'dnb2' : 'dnb', sbass: [[0, 6, r], [6, 2, r + 12], [8, 6, r], [14, 2, r + 7]], arp: { notes: c.map(m => m + 12), div: 2 },
+                lead2: pass ? blues[i] : null, gtr: pass ? null : [[4, 1, r + 12, 1], [12, 1, r + 12, 1]] });
+  }
+  for (let i = 0; i < 4; i++) bars.push({ drums: 'half', pad: [[0, 16, prog[i * 2][1]]], sbass: [[0, 16, prog[i * 2][0]]], bell: [[0, 8, 79 - i * 2], [8, 8, 74]] });
+  return { bpm: 174, bars, loop, gain: 1.3 };
+}
+
+// STAGE 3 · "KELP CATHEDRAL": slow organ-and-wah psychedelia in A dorian, 80 BPM
+function songLevel3b() {
+  const bars = [];
+  const prog = [[45, chord(57, 'm7')], [50, chord(62, 'd7')], [45, chord(57, 'm7')], [50, chord(62, 'd7')], [43, chord(55, 'M')], [50, chord(62, 'M')], [52, chord(64, 'm7')], [45, chord(57, 'm7')]];
+  bars.push({ drums: 'drift', pad: [[0, 16, prog[0][1]]], bloop: [[2], [7], [12]] });
+  bars.push({ drums: 'drift', organ: [[0, 16, prog[1][1]]], bloop: [[4], [10]] });
+  const loop = bars.length;
+  const bl = r => [[0, 6, r - 12], [6, 2, r - 5], [8, 4, r - 12], [12, 2, r - 10], [14, 2, r - 7]];
+  const arpL = c => [0, 2, 4, 6, 8, 10, 12, 14].map((st, k) => [st, 2, c[[0, 2, 1, 3][k % 4]] + 12]);
+  for (let i = 0; i < 8; i++) bars.push({ drums: i === 7 ? 'psychF' : 'psych', organ: [[0, 16, prog[i][1]]], bass: bl(prog[i][0]), phgtr: arpL(prog[i][1]), bloop: i % 3 === 0 ? [[11]] : null });
+  const wah = [[[0,4,72],[4,4,74],[8,8,76]], [[0,6,78],[6,2,76],[8,8,74]], [[0,4,72],[4,2,71],[6,2,69],[8,8,67]], [[0,8,69],[8,8,66]],
+               [[0,4,67],[4,4,71],[8,4,74],[12,4,79]], [[0,12,78],[12,4,74]], [[0,4,76],[4,4,74],[8,4,72],[12,4,71]], [[0,16,69]]];
+  for (let i = 0; i < 8; i++) bars.push({ drums: i === 7 ? 'psychF' : 'psych', organ: [[0, 16, prog[i][1]]], bass: bl(prog[i][0]), wah: wah[i] });
+  for (let i = 0; i < 4; i++) bars.push({ drums: 'drift', pad: [[0, 16, prog[i * 2][1]]], bell: [[0, 8, prog[i * 2][1][2] + 12], [8, 8, prog[i * 2][1][1] + 12]], bloop: [[3], [9], [13]] });
+  return { bpm: 80, bars, loop, gain: 1.6 };
+}
+
+// STAGE 3 · "PRESSURE BLOOM": a fuzzy stoner-rock groove in D mixolydian, 104 BPM
+function songLevel3c() {
+  const bars = [], D = 38;
+  const riff = [[0,3,D,0],[3,1,D,1],[4,2,D + 3,0],[6,2,D + 5,0],[8,3,D,0],[11,1,D,1],[12,2,D + 10,0],[14,2,D + 7,0]];
+  const riff2 = [[0,3,D + 5,0],[3,1,D + 5,1],[4,2,D + 7,0],[6,2,D + 10,0],[8,4,D + 12,0],[12,2,D + 10,0],[14,2,D + 7,0]];
+  bars.push({ drums: null, gtr: riff, bloop: [[13]] });
+  bars.push({ drums: 'drift', gtr: riff, bass: riff.map(([s, l, m]) => [s, l, m - 12]) });
+  const loop = bars.length;
+  for (let i = 0; i < 8; i++) { const r = i % 4 === 3 ? riff2 : riff; bars.push({ drums: i === 7 ? 'psychF' : 'stoner', gtr: r, bass: r.map(([s, l, m]) => [s, l, m - 12]), organ: i >= 4 ? [[0, 16, chord(62, 'M')]] : null }); }
+  const solo = [[[0,4,74],[4,2,77],[6,2,79],[8,8,81]], [[0,4,84],[4,4,81],[8,4,79],[12,4,77]], [[0,6,79],[6,2,77],[8,4,74],[12,4,72]], [[0,16,74]],
+                [[0,2,77],[2,2,79],[4,4,81],[8,4,84],[12,4,86]], [[0,8,84],[8,8,81]], [[0,4,79],[4,4,77],[8,4,76],[12,4,72]], [[0,16,74]]];
+  for (let i = 0; i < 8; i++) bars.push({ drums: i === 7 ? 'psychF' : 'psych', gtr: [[0, 8, i % 4 === 2 ? D + 5 : D, 0], [8, 8, i % 4 === 3 ? D + 7 : D, 0]], bass: [[0, 8, D - 12], [8, 8, D - 12 + (i % 2) * 5]], wah: solo[i], phgtr: [[0, 4, 74], [8, 4, 78]] });
+  for (let i = 0; i < 4; i++) bars.push({ drums: 'drift', phgtr: [0, 4, 8, 12].map(st => [st, 4, [62, 66, 69, 72][(st / 4 + i) % 4] + 12]), bass: [[0, 16, D - 12]], bloop: [[2], [8], [14]] });
+  return { bpm: 104, bars, loop, gain: 1.5 };
+}
+
+// STAGE 4 · "ARTERIAL ENGINE": glitch hop with doom chords pumping underneath, C# minor, 90 BPM
+function songLevel4b() {
+  const bars = [], C = 37;
+  bars.push({ drums: 'heartb', bass: [[0, 2, 25], [3, 2, 25]], ghit: [[12]] });
+  bars.push({ drums: 'heartb', bass: [[0, 2, 25], [3, 2, 25]], riser: [[8, 8]] });
+  const loop = bars.length;
+  const wobs = [[[0,6,37,2],[6,2,40,8],[8,8,37,4]], [[0,8,42,3],[8,4,40,6],[12,4,37,8]], [[0,6,37,2],[6,2,35,8],[8,8,33,4]], [[0,12,37,4],[12,4,37,1]]];
+  for (let i = 0; i < 8; i++) { const last = i % 4 === 3; bars.push({ drums: last ? 'glitchS' : 'glitch', wob: wobs[i % 4], gtr: [[0, 1, C, 0], [6, 1, C + 3, 0], [10, 1, C, 0]], stut: last ? [[12, 49]] : null, ghit: [[3], [11]] }); }
+  const doom = [[[0, 16, 37]], [[0, 8, 40], [8, 8, 39]], [[0, 8, 35], [8, 8, 33]], [[0, 12, 37], [12, 4, 36]]];
+  for (let i = 0; i < 4; i++) bars.push({ drums: 'doom', gtr: doom[i].map(([s, l, m]) => [s, l, m, 0]), bass: doom[i].map(([s, l, m]) => [s, l, m - 12]), organ: [[0, 16, chord(doom[i][0][2] + 24, 'm')]] });
+  for (let i = 0; i < 8; i++) bars.push({ drums: i % 4 === 3 ? 'glitchS' : 'glitch', wob: wobs[(i + 1) % 4], gtr: doom[i % 4].map(([s, l, m]) => [s, l, m, 0]), stut: i % 2 ? [[14, 49]] : null, ghit: [[7], [15]] });
+  return { bpm: 90, bars, loop, gain: 1.55 };
+}
+
+// STAGE 4 · "CLOT": crawling sludge doom with a heartbeat and glitches in the dark, B flat, 68 BPM
+function songLevel4c() {
+  const bars = [];
+  bars.push({ drums: 'heartb', bass: [[0, 2, 22], [3, 2, 22]] });
+  bars.push({ drums: 'heartb', bass: [[0, 2, 22], [3, 2, 22]], organ: [[0, 16, [46, 49, 52]]] });
+  const loop = bars.length;
+  const prog = [[[0, 16, 34]], [[0, 8, 37], [8, 8, 35]], [[0, 16, 33]], [[0, 8, 34], [8, 4, 33], [12, 4, 32]], [[0, 16, 34]], [[0, 8, 39], [8, 8, 37]], [[0, 8, 35], [8, 8, 34]], [[0, 16, 33]]];
+  for (let pass = 0; pass < 2; pass++) for (let i = 0; i < 8; i++)
+    bars.push({ drums: pass ? 'doom' : 'sludge', gtr: prog[i].map(([s, l, m]) => [s, l, m, 0]), bass: prog[i].map(([s, l, m]) => [s, l, m - 12]),
+                organ: pass ? [[0, 16, [prog[i][0][2] + 24, prog[i][0][2] + 27, prog[i][0][2] + 30]]] : null,
+                ghit: pass && i % 2 ? [[14]] : null, stut: pass && i === 7 ? [[12, 46]] : null });
+  for (let i = 0; i < 4; i++) bars.push({ drums: 'heartb', bass: [[0, 2, 22], [3, 2, 22]], pad: [[0, 16, [58, 61, 65]]], bell: i % 2 ? [[8, 8, 70]] : [[0, 8, 73]], ghit: [[10]] });
+  return { bpm: 68, bars, loop, gain: 1.65 };
+}
+
+// STAGE 5 · "HALO REQUIEM": a hymn (66 BPM) that turns into a sweeping battle theme (150 BPM), E minor
+function songLevel5b() {
+  const bars = [];
+  const hymn = [[chord(52, 'm'), [[0, 8, 76], [8, 8, 79]]], [chord(48, 'M'), [[0, 8, 79], [8, 8, 76]]], [chord(55, 'M'), [[0, 8, 74], [8, 8, 71]]], [chord(47, 'M'), [[0, 16, 75]]]];
+  hymn.forEach(([c, mel]) => bars.push({ bpm: 66, drums: 'epicIn', organ: [[0, 16, c]], pad: [[0, 16, c.map(m => m + 12)]], bell: mel, timp: [[0, c[0] - 12]] }));
+  bars.push({ bpm: 66, hit: [[0, chord(64, 'm')], [8, chord(59, 'M')]], timp: [[0, 40], [8, 40], [12, 40], [14, 40], [15, 40]], riser: [[8, 8]] });
+  const loop = bars.length;
+  const prog = [[40, chord(64, 'm')], [36, chord(60, 'M')], [43, chord(67, 'M')], [38, chord(62, 'M')], [40, chord(64, 'm')], [33, chord(57, 'm')], [35, chord(59, 'M')], [40, chord(64, 'm')]];
+  const theme = [[[0,4,76],[4,2,79],[6,2,83],[8,6,84],[14,2,83]], [[0,4,79],[4,4,76],[8,8,72]], [[0,2,74],[2,2,76],[4,4,79],[8,4,83],[12,4,86]], [[0,8,81],[8,4,78],[12,4,74]],
+                 [[0,4,83],[4,4,84],[8,4,83],[12,4,79]], [[0,6,81],[6,2,79],[8,8,76]], [[0,4,78],[4,4,81],[8,4,83],[12,4,87]], [[0,16,88]]];
+  for (let pass = 0; pass < 2; pass++) for (let i = 0; i < 8; i++) {
+    const [r, c] = prog[i];
+    bars.push({ bpm: 150, drums: i === 7 ? 'epicF' : 'epic', pad: i % 2 ? null : [[0, 32, c]], harp: { notes: c.map(m => m + 12 * pass), div: 1 }, brass: theme[i],
+                gtr: eighths(r + 12, 8), bass: [0, 4, 8, 12].map(st => [st, 4, r]), hit: i === 0 ? [[0, c]] : null });
+  }
+  return { bpm: 150, bars, loop, gain: 1.35 };
+}
+
+// STAGE 5 · "LAST WING": a harpsichord toccata (84 BPM) that erupts into a 176 BPM final battle, G minor
+function songLevel5c() {
+  const bars = [];
+  const toc = [chord(67, 'm'), chord(63, 'M'), chord(65, 'M'), chord(62, 'M')];
+  toc.forEach((c, i) => bars.push({ bpm: 84, drums: i < 2 ? null : 'epicIn', harp: { notes: [c[0], c[2], c[1], c[2], c[3], c[2], c[1], c[2]], div: 1 }, organ: [[0, 16, c.map(m => m - 12)]], timp: i === 3 ? [[0, 38], [8, 38], [12, 38], [14, 38]] : null }));
+  bars.push({ bpm: 84, drums: 'march', hit: [[0, chord(55, 'm')], [8, chord(50, 'M')]], riser: [[0, 16]] });
+  const loop = bars.length;
+  const prog = [[43, chord(67, 'm')], [39, chord(63, 'M')], [41, chord(65, 'M')], [38, chord(62, 'M')], [43, chord(67, 'm')], [36, chord(60, 'm')], [38, chord(62, 'd7')], [43, chord(67, 'm')]];
+  const theme = [[[0,2,79],[2,2,82],[4,4,86],[8,4,84],[12,4,82]], [[0,6,79],[6,2,77],[8,8,75]], [[0,2,77],[2,2,81],[4,4,84],[8,4,81],[12,4,77]], [[0,8,78],[8,4,81],[12,4,84]],
+                 [[0,4,86],[4,4,87],[8,4,86],[12,4,82]], [[0,4,84],[4,4,79],[8,8,75]], [[0,4,78],[4,4,81],[8,4,84],[12,4,90]], [[0,16,91]]];
+  for (let pass = 0; pass < 2; pass++) for (let i = 0; i < 8; i++) {
+    const [r, c] = prog[i];
+    bars.push({ bpm: 176, drums: i === 7 ? 'epicF' : pass ? 'speed2' : 'epic', organ: i % 2 ? null : [[0, 32, c.map(m => m - 12)]],
+                harp: { notes: [c[0], c[2], c[1], c[3]].map(m => m + 12 * pass), div: 1 }, brass: theme[i],
+                gtr: [[0,1,r,1],[2,1,r,1],[3,1,r,1],[4,1,r,1],[6,1,r,1],[7,1,r,1],[8,2,r + 3,0],[10,1,r,1],[11,1,r,1],[12,2,r + 5,0],[14,2,r + 7,0]],
+                bass: [0, 2, 4, 6, 8, 10, 12, 14].map(st => [st, 2, r - 12 + (st % 4 === 2 ? 12 : 0)]), hit: i % 4 === 0 ? [[0, c]] : null });
+  }
+  return { bpm: 176, bars, loop, gain: 1.3 };
+}
+Object.assign(SONGS, { level1b: songLevel1b, level1c: songLevel1c, level2b: songLevel2b, level2c: songLevel2c, level3b: songLevel3b,
+                       level3c: songLevel3c, level4b: songLevel4b, level4c: songLevel4c, level5b: songLevel5b, level5c: songLevel5c });
+
+// ============================================================================
 // Sequencer: schedules a little ahead of time so the beat stays tight
 // ============================================================================
 const MUS = { on: false, song: null, bar: 0, step: 0, t: 0, timer: null, intense: false };

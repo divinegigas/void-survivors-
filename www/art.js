@@ -2140,8 +2140,23 @@ function drawSettings() {
     drawSlider('SOUND EFFECTS', y0 + 90, PREF.sfxVol, v => { const was = PREF.sfxVol; setVolume('sfxVol', v); if (Math.abs(v - was) > 0.08) snd('gem'); }, COL.player);
     drawButton('vibe', 40, y0 + 150, W - 80, 44, `VIBRATION ${PREF.vibe ? 'ON' : 'OFF'}`, PREF.vibe ? COL.xp : '#5a5480',
                () => { PREF.vibe = !PREF.vibe; saveMeta(); buzz(40); });
+    drawButton('tracks', 40, y0 + 206, W - 80, 44, 'STAGE MUSIC ›', '#ff8c1a', () => { st.page = 'music'; UIM.t = 0; });
     drawButton('reset', 40, H - 150, W - 80, 44, 'RESET PROGRESS', COL.red, () => { st.page = 'confirm'; st.armed = false; UIM.t = 0; S.uiLock = 0.4; });
     drawButton('done', 40, H - 88, W - 80, 54, 'DONE', COL.xp, closeSettings);
+  } else if (st.page === 'music') {
+    // pick each stage's music; tap to cycle through the unlocked tracks (and hear it)
+    inkText('STAGE MUSIC', W / 2, 52, 36, COL.gold, 'center', FONT_D, 7);
+    const top = 104, rh = Math.min(84, (H - 200 - top) / 5);
+    for (let i = 1; i <= STAGE_COUNT; i++) {
+      const y = top + (i - 1) * rh, open = tracksOpen(i), cur = TRACKS[i][trackIdx(i)], plays = META.plays[i] || 0;
+      const next = CFG.trackUnlockPlays[open];
+      plainText(`STAGE ${i} · ${STAGES[i].name}`, 24, y + 8, 13, COL.dim, 'left');
+      drawButton('trk' + i, 20, y + 18, W - 40, 36, `♪ ${cur[1].toUpperCase()}  ${trackIdx(i) + 1}/${open}`, open > 1 ? '#a45cff' : '#5a5480',
+                 () => { cycleTrack(i); st.previewed = true; }, open > 1);
+      plainText(next ? `${open}/3 tracks · next one after ${next - plays} more play${next - plays > 1 ? 's' : ''} of this stage` : 'All 3 tracks unlocked!',
+                W / 2, y + 64, 11, next ? PAPER : COL.xp, 'center', FONT_B);
+    }
+    drawButton('mback', 40, H - 88, W - 80, 54, 'BACK', COL.xp, () => { st.page = 'main'; UIM.t = 0; });
   } else {
     // the are-you-sure screen
     const flash = Math.floor(performance.now() / 300) % 2 === 0;
@@ -2402,6 +2417,75 @@ function drawReveal() {
   if (t > R.skip) { inkText('TAP TO CONTINUE', W / 2, H - 14, 11, COL.dim, 'center', FONT_D, 2.5); addButton('revealSkip', { x: 0, y: 0, w: W, h: H }, endReveal); }
 }
 
+// --- NEW TRACK reveal: the same ceremony, with a spinning record and the new song playing --------
+function drawTrackReveal() {
+  const r = S.reveal, t = r.t, R = REVEAL, [, name] = TRACKS[r.stage][r.idx], th = THEMES[r.stage];
+  const col = th.rainbow ? `hsl(${(t * 90) % 360},80%,60%)` : th.dotA;
+  dim(Math.min(0.8, t * 1.5));
+  const wk = clamp((t - R.warn) / 0.25, 0, 1), wOut = easeOut(clamp((t - R.sweep + 0.1) / 0.3, 0, 1));
+  if (wk > 0 && wOut < 1) {
+    const flash = Math.floor((t - R.warn) * 6) % 2 === 0;
+    for (const [yy, dir] of [[H * 0.3, 1], [H * 0.62, -1]]) {
+      ctx.save(); ctx.translate(dir * (1 - easeOut(wk)) * W + dir * wOut * W * 1.4, yy); ctx.rotate(-0.08 * dir);
+      ctx.fillStyle = INK; ctx.fillRect(-W, -18, W * 3, 36);
+      ctx.save(); ctx.beginPath(); ctx.rect(-W, -14, W * 3, 28); ctx.clip();
+      for (let x = -W + ((t * 120 * dir) % 40); x < W * 2; x += 40) { ctx.fillStyle = COL.player; path([x, -14, x + 20, -14, x + 4, 14, x - 16, 14]); ctx.fill(); }
+      ctx.restore(); ctx.restore();
+    }
+    ctx.save(); ctx.globalAlpha = 1 - wOut;
+    burstTitle('NEW TRACK', W / 2, H * 0.42, 40 * (2 - easeOutBack(wk)), COL.player, '#a45cff');
+    slant(W / 2 - 120, H * 0.48, 240, 30, flash ? '#a45cff' : PAPER, 4, 10);
+    plainText('INCOMING', W / 2, H * 0.48 + 16, 20, flash ? PAPER : INK);
+    ctx.restore();
+  }
+  const sk = clamp((t - R.sweep) / 0.45, 0, 1);
+  if (sk > 0) {
+    const se = easeOutBack(sk), out = easeOut(clamp((t - R.end + 0.35) / 0.35, 0, 1));
+    ctx.save(); ctx.translate((1 - se) * W * 1.3 - out * W * 1.3, 0);
+    slab([0, H * 0.14, W, H * 0.08, W, H * 0.64, 0, H * 0.72], col, true);
+    // a big spinning record
+    const cx = W * 0.42, cy = H * 0.38, rr = W * 0.34;
+    ctx.save(); ctx.translate(cx, cy); ctx.rotate(t * 5);
+    ctx.fillStyle = INK; ctx.beginPath(); ctx.arc(0, 0, rr, 0, TAU); ctx.fill();
+    ctx.strokeStyle = '#3a3366'; ctx.lineWidth = 1.5; for (let k = 0.45; k < 0.97; k += 0.07) { ctx.beginPath(); ctx.arc(0, 0, rr * k, 0, TAU); ctx.stroke(); }
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(0, 0, rr * 0.75, -0.6, 0.1); ctx.stroke();
+    ctx.fillStyle = COL.gold; ctx.beginPath(); ctx.arc(0, 0, rr * 0.33, 0, TAU); ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = INK; ctx.stroke();
+    inkText(String(r.stage), 0, 2, rr * 0.36, COL.red, 'center', FONT_D, 4);
+    ctx.fillStyle = INK; ctx.beginPath(); ctx.arc(0, rr * 0.2, 3, 0, TAU); ctx.fill();
+    ctx.restore();
+    // equalizer bars bouncing to the beat
+    const n = 14, bw = (W - 40) / n;
+    for (let k = 0; k < n; k++) {
+      const h = 14 + 40 * Math.abs(Math.sin(t * (6 + k * 0.7) + k * 1.3)) * Math.abs(Math.sin(t * 3.1 + k));
+      ctx.fillStyle = INK; ctx.fillRect(20 + k * bw, H * 0.66 - h - 2, bw - 3, h + 4);
+      ctx.fillStyle = k % 2 ? COL.player : '#ff3fa4'; ctx.fillRect(22 + k * bw, H * 0.66 - h, bw - 7, h);
+    }
+    // musical notes flying out
+    for (let k = 0; k < 6; k++) {
+      const a = (t * 1.2 + k / 6) % 1, x = cx + rr * 0.9 + a * 90, y = cy - 40 - a * 120 + Math.sin(a * 10 + k) * 10;
+      ctx.globalAlpha = 1 - a; inkText(k % 2 ? '♪' : '♫', x, y, 26, k % 2 ? COL.gold : PAPER, 'center', FONT_D, 3);
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+  const uk = clamp((t - R.unlock) / 0.3, 0, 1);
+  if (uk > 0) {
+    if (t - R.unlock < 0.07) { ctx.fillStyle = PAPER; ctx.fillRect(0, 0, W, H); }
+    const out = easeOut(clamp((t - R.end + 0.35) / 0.35, 0, 1));
+    ctx.save(); ctx.translate(W / 2 + out * W, H * 0.79); ctx.rotate(-0.08);
+    const sc = 2.4 - 1.4 * easeOutBack(uk); ctx.scale(sc, sc);
+    burstTitle('UNLOCKED!', 0, 0, 44, COL.gold, COL.red);
+    ctx.restore();
+    const nk = easeOutBack(clamp((t - R.unlock - 0.25) / 0.3, 0, 1));
+    ctx.save(); ctx.translate(-(1 - nk) * W - out * W, 0);
+    slant(14, H * 0.86, W - 28, 52, PAPER, 5, 12);
+    plainText(`♪ "${name.toUpperCase()}"`, W / 2, H * 0.86 + 18, 20, INK);
+    plainText(`Now playing on stage ${r.stage} · change it in Settings`, W / 2, H * 0.86 + 38, 11, '#4a4470', 'center', FONT_B);
+    ctx.restore();
+  }
+  if (t > R.skip) { inkText('TAP TO CONTINUE', W / 2, H - 10, 11, COL.dim, 'center', FONT_D, 2.5); addButton('revealSkip', { x: 0, y: 0, w: W, h: H }, endReveal); }
+}
+
 // --- screen wipe between menus ------------------------------------------------
 function drawWipe() {
   if (UIM.wipe <= 0) return;
@@ -2456,7 +2540,7 @@ function render() {
   else if (S.state === 'levelup') drawLevelUp();
   else if (S.state === 'paused') drawPaused();
   else if (S.state === 'cutin') drawCutin();
-  else if (S.state === 'reveal') drawReveal();
+  else if (S.state === 'reveal') (S.reveal.kind === 'track' ? drawTrackReveal : drawReveal)();
   else if (S.state === 'stages') drawStages();
   if (S.state === 'play') drawStageIntro();
   else if (S.state === 'over' || S.state === 'won') drawGameOver();
