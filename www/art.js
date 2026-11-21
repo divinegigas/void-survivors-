@@ -423,11 +423,28 @@ function drawPlayer() {
   const blink = p.invuln > 0 && S.phase <= 0 && Math.floor(p.invuln * 16) % 2 === 0;
   drawFlame(p.x, p.y + 10, 1.2);
   for (const id in S.weapons) if (WEAPON_ART[id]) WEAPON_ART[id](S.weapons[id]);
-  if (S.phase > 0) {                       // Phase Ram: dashed ink aura
+  if (S.phase > 0) {                       // Phase Ram: afterimages and a spiked pink aura
+    ctx.globalAlpha = 0.25;
+    for (let k = 1; k <= 3; k++) drawShip(p.x - input.dx * k * 0.4, p.y + k * 9, SHIP_SIZE, S.ship);
+    ctx.globalAlpha = 1;
+    ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(S.t * 6);
+    ctx.beginPath();
+    for (let k = 0; k < 24; k++) { const rr = k % 2 ? 24 : 32 + Math.sin(S.t * 30 + k) * 3, a = (k / 24) * TAU; ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); }
+    ctx.closePath(); ctx.fillStyle = 'rgba(255,63,164,0.3)'; ctx.fill(); ctx.lineWidth = 2.5; ctx.strokeStyle = '#ff3fa4'; ctx.stroke();
+    ctx.restore();
     ctx.setLineDash([5, 4]);
     ctx.lineWidth = 3; ctx.strokeStyle = PAPER;
     ctx.beginPath(); ctx.arc(p.x, p.y, 26 + Math.sin(S.t * 20) * 2, 0, TAU); ctx.stroke();
     ctx.setLineDash([]);
+  }
+  if (S.overdrive > 0) {                   // Overdrive: crackling blue flame aura
+    ctx.save(); ctx.translate(p.x, p.y);
+    for (let k = 0; k < 3; k++) {
+      ctx.beginPath();
+      for (let i = 0; i <= 16; i++) { const a = (i / 16) * TAU, rr = 22 + k * 5 + Math.sin(S.t * 25 + i * 2.1 + k) * 4 + (Math.sin(a) > 0 ? Math.sin(a) * 10 : 0); ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); }
+      ctx.closePath(); ctx.globalAlpha = 0.5 - k * 0.13; ctx.lineWidth = 3; ctx.strokeStyle = k === 1 ? PAPER : '#2ec5ff'; ctx.stroke();
+    }
+    ctx.restore(); ctx.globalAlpha = 1;
   }
   if (!blink) drawShip(p.x, p.y, SHIP_SIZE, S.ship);
   // hitbox dot: the only part that can be hit
@@ -1078,6 +1095,194 @@ Object.assign(CREATURE, {
   },
 });
 
+// ---- stage 2-5 mini-bosses ---------------------------------------------------
+function ringStroke(x, y, r, w, color, sy) {         // an inked ring (halo, rim) that also gets the white outline
+  ctx.save(); ctx.translate(x, y); ctx.scale(1, sy || 1);
+  const passes = OUTLINE ? [[w + 2.5 + OUT_W * 2, PAPER]] : [[w + 2.5, INK], [w, color]];
+  for (const [lw, c] of passes) { ctx.lineWidth = lw; ctx.strokeStyle = c; ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.stroke(); }
+  ctx.restore();
+}
+Object.assign(CREATURE, {
+  manta(e, f) {                       // RIFT MANTA: a vast ray with warp-lit wings and a toothed underside
+    const t = e.age, fl = Math.sin(t * 2.4) * 6; ctx.scale(e.r / 44, e.r / 44);
+    tendril(0, 20, Math.sin(t * 2) * 10, 70, Math.sin(t * 3) * 8, tone(e.color, -0.3), 4);
+    celBuild(() => { ctx.beginPath(); ctx.moveTo(0, -26); ctx.bezierCurveTo(30, -26, 50, -10 + fl, 66, 8 + fl); ctx.quadraticCurveTo(40, 6, 18, 24);
+      ctx.quadraticCurveTo(0, 30, -18, 24); ctx.quadraticCurveTo(-40, 6, -66, 8 + fl); ctx.bezierCurveTo(-50, -10 + fl, -30, -26, 0, -26); }, e.color, 50, f, 3);
+    if (!OUTLINE) for (const sd of [-1, 1]) for (let i = 0; i < 4; i++) glow(sd * (24 + i * 9), -4 + i * 2 + fl * i / 4, 2.6, i % 2 ? '#7de0ff' : '#ff5df0', 0.6 + 0.4 * Math.sin(t * 6 + i));
+    for (const sd of [-1, 1]) boneHook(sd * 10, -22, sd * 18, -42, sd * 12, -50, sd * 4, f);
+    maw(0, 12, 14, 7, 12, 0.6 + 0.4 * Math.abs(Math.sin(t * 2)));
+    eyeball(-12, -10, 4, '#7de0ff', t); eyeball(12, -10, 4, '#7de0ff', t);
+  },
+  oculus(e, f) {                      // FLUX OCULUS: one great eye in a fleshy lid, crystals orbiting
+    const t = e.age, angry = e.hp < e.maxHp / 2, n = angry ? 5 : 3;
+    for (let k = 0; k < n; k++) {
+      const a = (e.spin || 0) + (k / n) * TAU, ox = Math.cos(a) * 62, oy = Math.sin(a) * 62;
+      ctx.save(); ctx.translate(ox, oy); ctx.rotate(t * 3);
+      cel([0, -10, 7, 0, 0, 10, -7, 0], '#c8e4ff', 9, f, 2); ctx.restore();
+      if (!OUTLINE) { ctx.globalAlpha = 0.3; ctx.strokeStyle = e.color; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(ox, oy); ctx.stroke(); ctx.globalAlpha = 1; }
+    }
+    ctx.scale(e.r / 40, e.r / 40);
+    for (let i = 0; i < 6; i++) tendril(Math.cos(i) * 20, 20, Math.cos(i * 1.7) * 30, 52 + (i % 2) * 8, Math.sin(t * 2 + i) * 6, tone(e.color, -0.2), 3);
+    oval(0, 0, 40, 34, 0, e.color, f, 3);
+    veins([[-30, -14, -16, -30, 4, -30], [26, -18, 30, 0, 34, 10]]);
+    oval(0, 2, 28, 22, 0, '#f6edd2', f, 2.4);
+    if (!OUTLINE) {
+      const ix = Math.cos(LOOK) * 8, iy = Math.sin(LOOK) * 6;
+      ctx.fillStyle = angry ? COL.red : '#ff5df0'; ctx.beginPath(); ctx.arc(ix, 2 + iy, 14, 0, TAU); ctx.fill();
+      ctx.fillStyle = INK; ctx.beginPath(); ctx.ellipse(ix, 2 + iy, 4, 12, 0, 0, TAU); ctx.fill();
+      ctx.fillStyle = PAPER; ctx.beginPath(); ctx.arc(ix - 5, iy - 4, 3.5, 0, TAU); ctx.fill();
+      veins([[-24, -6, -16, 0, -12, 8], [22, 10, 16, 4, 12, -4]]);
+    }
+    celBuild(() => { ctx.beginPath(); ctx.ellipse(0, -18, 34, 12, 0, Math.PI, TAU); ctx.quadraticCurveTo(0, -6, -34, -18); }, tone(e.color, -0.25), 30, f, 2.4);   // heavy upper lid
+  },
+  static(e, f) {                      // STATIC WRAITH: a tattered glitching shroud with a TV-snow face
+    const t = e.age; ctx.scale(e.r / 40, e.r / 40);
+    if (!OUTLINE && e.ghosts) for (const [gx, gy] of e.ghosts) {
+      ctx.save(); ctx.translate((gx - e.x) * 40 / e.r, (gy - e.y) * 40 / e.r); ctx.globalAlpha = 0.35;
+      ctx.fillStyle = e.color; path([-26, -30, 26, -30, 34, 40, 0, 26, -34, 40]); ctx.fill(); ctx.restore(); ctx.globalAlpha = 1;
+    }
+    const jx = (e.flick || 0) > 0 || Math.sin(t * 13) > 0.92 ? rand(-5, 5) : 0;
+    ctx.translate(jx, 0);
+    celBuild(() => path([-26, -34, 0, -44, 26, -34, 36, 10, 40, 44, 22, 30, 10, 46, -4, 30, -18, 46, -28, 28, -40, 44, -36, 6]), e.color, 40, f, 3);
+    oval(0, -18, 18, 16, 0, '#2a2a3a', f, 2.6);
+    if (!OUTLINE) {
+      ctx.save(); ctx.beginPath(); ctx.ellipse(0, -18, 16, 14, 0, 0, TAU); ctx.clip();
+      for (let i = 0; i < 70; i++) { ctx.fillStyle = Math.random() < 0.5 ? '#e0f0ff' : '#5a6a80'; ctx.fillRect(rand(-16, 14), rand(-32, 2), 2, 2); }
+      ctx.restore();
+      ctx.fillStyle = COL.red; for (const sd of [-1, 1]) { ctx.beginPath(); ctx.arc(sd * 6 + Math.cos(LOOK), -20 + Math.sin(LOOK), 2.6, 0, TAU); ctx.fill(); }
+      ctx.strokeStyle = '#ff5df0'; ctx.lineWidth = 2; ctx.globalAlpha = 0.6; ctx.beginPath(); ctx.moveTo(-30, rand(-10, 30)); ctx.lineTo(30, rand(-10, 30)); ctx.stroke(); ctx.globalAlpha = 1;
+    }
+    for (const sd of [-1, 1]) boneHook(sd * 28, 0, sd * 54, 8, sd * 46, 36, sd * 5, f);
+  },
+  nautilus(e, f) {                    // DREAD NAUTILUS: a coiled shell, a hood of tentacles, one slit eye
+    const t = e.age; ctx.scale(e.r / 46, e.r / 46);
+    for (let i = 0; i < 6; i++) tendril((i - 2.5) * 7, 18, (i - 2.5) * 14, 64 + (i % 2) * 10, Math.sin(t * 2.4 + i) * 9, '#d8a0a8', 4.5);
+    oval(0, -10, 44, 40, 0, '#e8dcc0', f, 3);
+    if (!OUTLINE) {                                   // the spiral and stripes
+      ctx.save(); ctx.rotate(t * 0.4);
+      ctx.strokeStyle = '#8a4a30'; ctx.lineWidth = 4; ctx.beginPath();
+      for (let a = 0; a < 14; a += 0.2) { const r = 2 + a * 2.7; ctx.lineTo(Math.cos(a) * r, -10 + Math.sin(a) * r); } ctx.stroke(); ctx.restore();
+    }
+    oval(0, 16, 30, 14, 0, e.color, f, 2.8);
+    eyeball(-14, 14, 5, '#ffd66a', t); eyeball(14, 14, 5, '#ffd66a', t);
+    maw(0, 26, 8, 5, 8, 0.5 + 0.5 * Math.abs(Math.sin(t * 3)));
+  },
+  siren(e, f) {                       // SIREN BLOOM: a carnivorous anemone with a singing face at its heart
+    const t = e.age; ctx.scale(e.r / 46, e.r / 46);
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * TAU + Math.sin(t * 1.5) * 0.1, r1 = 52 + Math.sin(t * 3 + i) * 6;
+      tendril(Math.cos(a) * 26, Math.sin(a) * 26, Math.cos(a) * r1, Math.sin(a) * r1, Math.sin(t * 2 + i) * 6, i % 2 ? e.color : '#ff9ac8', 5);
+      glow(Math.cos(a) * r1, Math.sin(a) * r1, 3.5, '#fff2a0', 0.7);
+    }
+    oval(0, 0, 32, 30, 0, e.color, f, 3);
+    oval(0, 2, 18, 20, 0, '#f6e0e8', f, 2.4);
+    if (!OUTLINE) { ctx.fillStyle = INK; for (const sd of [-1, 1]) { ctx.beginPath(); ctx.ellipse(sd * 7, -3, 3.6, 1.6, sd * 0.2, 0, TAU); ctx.fill(); } }
+    const sing = 0.5 + 0.5 * Math.abs(Math.sin(t * 4));
+    maw(0, 10, 6, 7, 8, sing);
+  },
+  gulper(e, f) {                      // GULPER KING: a pale deep-sea horror that is mostly jaw
+    const t = e.age, lunge = e.mode === 2; ctx.scale(e.r / 42, e.r / 42);
+    tendril(0, -30, Math.sin(t * 2) * 20, -70, 10 * Math.sin(t), tone(e.color, -0.3), 6);
+    const open = lunge ? 1 : 0.35 + 0.15 * Math.sin(t * 3);
+    oval(0, -12, 34, 28, 0, e.color, f, 3);
+    if (!OUTLINE) {
+      ctx.fillStyle = MAW; ctx.beginPath(); ctx.ellipse(0, 12, 40, 14 + open * 26, 0, 0, TAU); ctx.fill();
+      ctx.fillStyle = BONE; ctx.strokeStyle = INK; ctx.lineWidth = 0.8; ctx.beginPath();
+      for (let x = -34; x <= 34; x += 8) { const yy = 12 - (14 + open * 26) * 0.75 * Math.sqrt(1 - (x / 40) ** 2); ctx.moveTo(x - 3, yy); ctx.lineTo(x, yy + 12 + open * 6); ctx.lineTo(x + 3, yy); }
+      for (let x = -30; x <= 30; x += 8) { const yy = 12 + (14 + open * 26) * 0.75 * Math.sqrt(1 - (x / 40) ** 2); ctx.moveTo(x - 3, yy); ctx.lineTo(x, yy - 11 - open * 5); ctx.lineTo(x + 3, yy); }
+      ctx.fill(); ctx.stroke();
+    }
+    celBuild(() => { ctx.beginPath(); ctx.ellipse(0, 12, 42, 16 + open * 28, 0, 0, TAU); }, 'rgba(0,0,0,0)', 1, false, 3);
+    eyeball(-20, -22, 3.4, '#e8f0f0', t); eyeball(20, -22, 3.4, '#e8f0f0', t); eyeball(-10, -30, 2.4, '#e8f0f0', t); eyeball(10, -30, 2.4, '#e8f0f0', t);
+  },
+  bladder(e, f) {                     // BILE BLADDER: a translucent sac of acid that swells until it bursts
+    const t = e.age, sw = e.swell || 0, k = 1 + sw * 0.22 + 0.03 * Math.sin(t * 8); ctx.scale(e.r / 46, e.r / 46);
+    for (let i = 0; i < 4; i++) tendril((i - 1.5) * 16, -24, (i - 1.5) * 22, -60, Math.sin(t * 2 + i) * 8, '#c2405a', 6);
+    ctx.save(); ctx.scale(k, k);
+    oval(0, 0, 40, 38, 0, e.color, f, 3);
+    if (!OUTLINE) {
+      ctx.fillStyle = '#c4cf1f'; ctx.globalAlpha = 0.45 + sw * 0.4; ctx.beginPath(); ctx.ellipse(0, 8, 30, 24, 0, 0, TAU); ctx.fill(); ctx.globalAlpha = 1;
+      for (let i = 0; i < 6; i++) glow(Math.sin(t * 2 + i * 2) * 20, 10 + Math.cos(t * 3 + i) * 14, 3, '#efff8a', 0.8);
+    }
+    veins([[-34, -10, -20, -28, 0, -34], [30, -20, 20, 4, 34, 12], [-28, 16, -12, 8, -4, 26]]);
+    eyeball(-14, -14, 4, EYE, t, sw > 0.8); eyeball(14, -14, 4, EYE, t, sw > 0.8);
+    maw(0, 24, 10, 6, 10, 0.4 + sw * 0.6);
+    ctx.restore();
+    drip(-10, 38, t, 1, 1.5); drip(12, 36, t, 2, 1.2);
+  },
+  parasite(e, f) {                    // PARASITE KING: a bloated head trailing a crown of whipping tapeworm tails
+    const t = e.age; ctx.scale(e.r / 42, e.r / 42);
+    const arms = e.hp < e.maxHp / 2 ? 4 : 3;
+    for (let k = 0; k < arms; k++) {
+      const a = (e.spin || 0) + (k / arms) * TAU;
+      for (let i = 6; i >= 1; i--) { const rr = 22 + i * 9, w = Math.sin(t * 4 - i * 0.6) * 0.15; oval(Math.cos(a + w * i * 0.3) * rr, Math.sin(a + w * i * 0.3) * rr, 7 - i * 0.6, 7 - i * 0.6, 0, i % 2 ? '#e8d0a0' : tone('#e8d0a0', -0.2), f, 1.8); }
+    }
+    oval(0, 0, 32, 30, 0, e.color, f, 3);
+    veins([[-24, -10, -12, -24, 4, -26], [22, -16, 26, 0, 28, 10]]);
+    eggs([[-18, 4, 3.5], [18, 2, 3.5], [0, -2, 3]], t);
+    maw(0, 10, 12, 10, 12, 0.6 + 0.4 * Math.abs(Math.sin(t * 3)));
+    eyeball(-14, -12, 3.6, EYE, t); eyeball(14, -12, 3.6, EYE, t); eyeball(0, -20, 2.8, EYE, t);
+  },
+  phagocyte(e, f) {                   // PHAGOCYTE: a wobbling white blood cell with half-digested things inside
+    const t = e.age; ctx.scale(e.r / 44, e.r / 44);
+    celBuild(() => { ctx.beginPath(); for (let i = 0; i <= 24; i++) { const a = (i / 24) * TAU, r = 42 + Math.sin(a * 5 + t * 3) * 4 + Math.sin(a * 3 - t * 2) * 3; ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r); } ctx.closePath(); }, e.color, 44, f, 3);
+    if (!OUTLINE) {
+      ctx.globalAlpha = 0.6;
+      for (const [x, y, r, c] of [[-16, 14, 7, '#e88a8a'], [18, 10, 6, '#7a3050'], [-4, 26, 5, '#e8d0a0']]) { ctx.fillStyle = c; ctx.beginPath(); ctx.ellipse(x + Math.sin(t + x) * 3, y, r, r * 0.7, t * 0.5, 0, TAU); ctx.fill(); }
+      ctx.globalAlpha = 1;
+    }
+    oval(0, -8, 20, 16, 0, '#b08ac8', f, 2.4);           // nucleus
+    eyeball(-7, -10, 4.2, COL.red, t, e.mode === 2); eyeball(7, -10, 4.2, COL.red, t, e.mode === 2);
+    if (e.mode === 2) maw(0, 16, 20, 14, 14, 1);
+  },
+  knight(e, f) {                      // PRISM KNIGHT: a faceless crystal knight with a glass greatsword
+    const t = e.age; ctx.scale(e.r / 42, e.r / 42);
+    const sw = e.swing > 0 ? (e.swDir || 1) * (e.swing / 0.6 - 0.5) * 2.4 : 0.6;
+    ctx.save(); ctx.translate(28, 0); ctx.rotate(-sw + 0.3);                     // the sword
+    cel([-4, 0, 4, 0, 5, 64, 0, 76, -5, 64], '#c8e4ff', 40, f, 2.2);
+    flat(() => path([-14, -2, 14, -2, 14, 4, -14, 4]), f ? PAPER : COL.gold, 1.5);
+    ctx.restore();
+    for (const sd of [-1, 1]) cel([sd * 12, -24, sd * 40, -34, sd * 34, -10, sd * 18, -8], tone(e.color, -0.2), 20, f, 2.2);   // pauldrons
+    cel([0, -40, 18, -24, 22, 20, 0, 40, -22, 20, -18, -24], e.color, 40, f, 3);
+    if (!OUTLINE) { ctx.strokeStyle = `hsl(${(t * 80) % 360},90%,80%)`; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(0, -40); ctx.lineTo(0, 40); ctx.moveTo(-18, -24); ctx.lineTo(22, 20); ctx.stroke(); }
+    cel([0, -58, 12, -44, 0, -30, -12, -44], '#e0d8ff', 14, f, 2.2);                 // helm
+    if (!OUTLINE) { ctx.fillStyle = INK; ctx.fillRect(-8, -46, 16, 3); ctx.fillStyle = COL.red; ctx.fillRect(-6, -45.5, 12 * (0.5 + 0.5 * Math.sin(t * 4)), 2); }
+  },
+  choir(e, f) {                       // HALO CHOIR: three porcelain masks, each in its own spinning halo
+    const t = e.age; ctx.scale(e.r / 46, e.r / 46);
+    for (const sd of [-1, 1]) for (let i = 3; i >= 0; i--) oval(sd * (40 + i * 10), -6 - i * 6, 18, 5, sd * (-0.4 - i * 0.15), i % 2 ? '#f3ead2' : '#e3d6b4', f, 1.6);
+    const singing = e.hp < e.maxHp / 2 ? [0, 1, 2] : [(e.volley || 0) % 3];
+    for (let i = 0; i < 3; i++) {
+      const mx = (i - 1) * 42, my = i === 1 ? -10 : 8, on = singing.includes(i);
+      ctx.save(); ctx.translate(mx, my); ctx.rotate(t * (i % 2 ? -1 : 1));
+      ringStroke(0, 0, 23, 3.5, on ? COL.gold : '#c8b890');
+      ctx.restore();
+      oval(mx, my, 16, 19, 0, e.color, f, 2.4);
+      if (!OUTLINE) {
+        ctx.fillStyle = INK; for (const sd of [-1, 1]) { ctx.beginPath(); ctx.ellipse(mx + sd * 5, my - 3, 3, 1.4, sd * 0.25, 0, TAU); ctx.fill(); }
+        ctx.fillStyle = MAW; ctx.beginPath(); ctx.ellipse(mx, my + 7, 3.2, on ? 5 : 1.4, 0, 0, TAU); ctx.fill();
+        ctx.strokeStyle = COL.gold; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(mx - 5, my - 1); ctx.quadraticCurveTo(mx - 6, my + 6, mx - 4, my + 12); ctx.stroke();
+      }
+    }
+  },
+  reflection(e, f) {                  // THE REFLECTION: a cracked mirror-glass figure, your ship's dark twin inside
+    const t = e.age; ctx.scale(e.r / 40, e.r / 40);
+    celBuild(() => path([0, -46, 30, -30, 38, 10, 18, 44, -18, 44, -38, 10, -30, -30]), '#d8e8f4', 40, f, 3);
+    if (!OUTLINE) {
+      ctx.save(); path([0, -46, 30, -30, 38, 10, 18, 44, -18, 44, -38, 10, -30, -30]); ctx.clip();
+      ctx.fillStyle = '#1d1648'; ctx.fillRect(-30, -36, 60, 72);
+      ctx.save(); ctx.rotate(Math.PI); drawShip(0, 0, 1.5, S && S.ship); ctx.restore();          // your ship, upside down, in the glass
+      const sh = ((t * 0.6) % 1) * 120 - 60;
+      ctx.fillStyle = 'rgba(255,255,255,0.35)'; path([-40, sh, 40, sh - 30, 40, sh - 18, -40, sh + 12]); ctx.fill();
+      ctx.restore();
+      ctx.strokeStyle = INK; ctx.lineWidth = 1.4; ctx.beginPath();
+      ctx.moveTo(-10, -30); ctx.lineTo(4, -8); ctx.lineTo(-6, 10); ctx.lineTo(10, 30); ctx.moveTo(4, -8); ctx.lineTo(24, -4); ctx.stroke();
+    }
+    for (const sd of [-1, 1]) boneHook(sd * 30, -26, sd * 52, -44, sd * 46, -64, sd * 5, f);
+    eyeball(-10, -24, 3.6, '#2ec5ff', t); eyeball(10, -24, 3.6, '#2ec5ff', t);
+  },
+});
+
 function drawEnemy(e) {
   const draw = CREATURE[e.look] || CREATURE[e.type] || CREATURE.drone, flash = e.flash > 0;
   LOOK = S ? Math.atan2(S.p.y - e.y, S.p.x - e.x) : Math.PI / 2;
@@ -1161,6 +1366,8 @@ function drawWorld() {
     ctx.lineWidth = n.small ? 2.5 : 4.5; ctx.strokeStyle = n.color; ctx.stroke();
     ctx.globalAlpha = 1;
   }
+  if (S.mushroom) drawMushroom(S.mushroom);
+  if (S.ultFx) drawUltFx(S.ultFx);
   // Debris
   for (const q of S.parts) {
     ctx.globalAlpha = 1 - q.age / q.life;
@@ -1181,7 +1388,17 @@ function drawWorld() {
   }
   ctx.globalAlpha = 1;
 
-  if (S.warp > 0) { ctx.fillStyle = 'rgba(46,197,255,0.10)'; ctx.fillRect(0, 0, W, H); }
+  if (S.warp > 0) {                        // Time Warp: a tinted screen and a giant slow clock face
+    ctx.fillStyle = 'rgba(46,197,255,0.12)'; ctx.fillRect(0, 0, W, H);
+    ctx.save(); ctx.translate(W / 2, H * 0.45); ctx.globalAlpha = Math.min(1, S.warp) * 0.35;
+    ctx.lineWidth = 3; ctx.strokeStyle = '#7de0ff'; ctx.beginPath(); ctx.arc(0, 0, W * 0.46, 0, TAU); ctx.stroke();
+    ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 0, W * 0.4, 0, TAU); ctx.stroke();
+    for (let k = 0; k < 12; k++) { const a = (k / 12) * TAU; ctx.beginPath(); ctx.moveTo(Math.cos(a) * W * 0.4, Math.sin(a) * W * 0.4); ctx.lineTo(Math.cos(a) * W * 0.46, Math.sin(a) * W * 0.46); ctx.stroke(); }
+    ctx.lineWidth = 5; ctx.rotate(S.t * 0.25); ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -W * 0.36); ctx.stroke();
+    ctx.rotate(S.t * 0.05); ctx.lineWidth = 7; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -W * 0.24); ctx.stroke();
+    ctx.restore(); ctx.globalAlpha = 1;
+  }
+  drawUltBorder();
   if (S.whiteout > 0) { ctx.globalAlpha = S.whiteout / 0.35 * 0.85; ctx.fillStyle = PAPER; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
 }
 
@@ -1299,7 +1516,16 @@ function drawLaser() {
 
 function drawHole(h) {
   ctx.save(); ctx.translate(h.x, h.y);
-  const r = 26 + Math.sin(S.t * 8) * 2;
+  const r = 26 + Math.sin(S.t * 8) * 2, R = h.R || 170;
+  ctx.save(); ctx.rotate(-S.t * 1.5);                  // swirling accretion disk across the whole pull radius
+  for (let k = 0; k < 9; k++) {
+    ctx.rotate(TAU / 9); ctx.globalAlpha = 0.25; ctx.lineWidth = 2 + (k % 3);
+    ctx.strokeStyle = k % 3 === 0 ? PAPER : k % 3 === 1 ? '#a45cff' : '#ff3fa4';
+    ctx.beginPath(); ctx.arc(R * 0.45, 0, R * 0.55, Math.PI * 0.7, Math.PI * 1.15); ctx.stroke();
+  }
+  ctx.restore(); ctx.globalAlpha = 1;
+  const gl = ctx.createRadialGradient(0, 0, r, 0, 0, r * 3.2); gl.addColorStop(0, 'rgba(164,92,255,0.55)'); gl.addColorStop(1, 'rgba(164,92,255,0)');
+  ctx.fillStyle = gl; ctx.beginPath(); ctx.arc(0, 0, r * 3.2, 0, TAU); ctx.fill();
   ctx.rotate(S.t * 3);
   ctx.lineWidth = 3;
   for (let k = 0; k < 4; k++) {
@@ -1311,6 +1537,56 @@ function drawHole(h) {
   ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.fill();
   ctx.lineWidth = 4; ctx.strokeStyle = '#a45cff'; ctx.stroke();
   ctx.restore();
+}
+
+// ---- ULTIMATE wow: the moment it fires ----------------------------------------
+function drawUltFx(f) {
+  const t = f.t, u = ULTS[f.id];
+  if (t < 0.3) { ctx.globalAlpha = (1 - t / 0.3) * 0.55; ctx.fillStyle = f.color; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }   // colour flash
+  if (t < 0.06) { ctx.fillStyle = PAPER; ctx.fillRect(0, 0, W, H); }                                                               // one white frame
+  // comic speed lines bursting out of the ship
+  const a = Math.max(0, 1 - t / 0.9);
+  if (a > 0) {
+    ctx.save(); ctx.translate(f.x, f.y);
+    for (let i = 0; i < 36; i++) {
+      const ang = (i / 36) * TAU + (i * 7.3) % 1 * 0.1, r0 = 40 + t * 500 + (i * 53) % 90, r1 = r0 + 90 + (i * 31) % 120, w = 3 + (i % 4) * 2;
+      ctx.globalAlpha = a; ctx.fillStyle = i % 3 ? f.color : PAPER;
+      ctx.beginPath(); ctx.moveTo(Math.cos(ang - 0.012 * w) * r0, Math.sin(ang - 0.012 * w) * r0);
+      ctx.lineTo(Math.cos(ang) * r1, Math.sin(ang) * r1); ctx.lineTo(Math.cos(ang + 0.012 * w) * r0, Math.sin(ang + 0.012 * w) * r0); ctx.fill();
+    }
+    ctx.restore(); ctx.globalAlpha = 1;
+  }
+  // the ultimate's glyph, huge, swelling and fading behind the action
+  const g = clamp(t / 1.2, 0, 1);
+  ctx.save(); ctx.globalAlpha = 0.5 * (1 - g); ctx.translate(f.x, f.y - 60); ctx.scale(1 + g * 3, 1 + g * 3);
+  ctx.font = '700 60px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.lineWidth = 6; ctx.strokeStyle = INK; ctx.strokeText(u.glyph, 0, 0); ctx.fillStyle = f.color; ctx.fillText(u.glyph, 0, 0);
+  ctx.restore();
+  // level stars under the word
+  if (t < 1.1) {
+    ctx.globalAlpha = Math.min(1, (1.1 - t) * 3);
+    for (let i = 0; i < f.L; i++) sparkle(W / 2 + (i - (f.L - 1) / 2) * 22, f.y - 40, 7 + Math.sin(t * 20 + i) * 2);
+    ctx.globalAlpha = 1;
+  }
+}
+function drawMushroom(m) {                 // Megaton: a comic fireball and mushroom cloud
+  const t = m.t, k = easeOut(clamp(t / 0.5, 0, 1)), fade = clamp((1.6 - t) / 0.6, 0, 1);
+  ctx.save(); ctx.translate(m.x, m.y); ctx.globalAlpha = fade;
+  const R = 40 + 90 * k, rise = t * 30;
+  celBuild(() => { ctx.beginPath(); ctx.moveTo(-R * 0.25, R * 1.3); ctx.lineTo(-R * 0.18, -rise); ctx.lineTo(R * 0.18, -rise); ctx.lineTo(R * 0.25, R * 1.3); ctx.closePath(); }, '#ff8a3d', R, false, 3);
+  ctx.translate(0, -rise);
+  celBuild(() => { burstPath(R, 14, 7); }, '#ff8a3d', R, false, 3.5);
+  celBuild(() => { burstPath(R * 0.72, 12, 3); }, COL.gold, R * 0.7, false, 3);
+  celBuild(() => { burstPath(R * 0.4, 10, 5); }, PAPER, R * 0.4, false, 2.5);
+  ctx.restore(); ctx.globalAlpha = 1;
+}
+function drawUltBorder() {                 // while an ultimate is running, the screen edge glows in its colour
+  const active = S.overdrive > 0 ? '#2ec5ff' : S.warp > 0 ? '#7de0ff' : S.phase > 0 ? '#ff3fa4' : S.hole ? '#a45cff' : S.barrage ? '#ff8c1a' : S.mushroom ? '#ffd60a' : null;
+  if (!active) return;
+  ctx.globalAlpha = 0.35 + 0.2 * Math.sin(S.t * 10);
+  ctx.lineWidth = 10; ctx.strokeStyle = active; ctx.strokeRect(0, 0, W, H);
+  ctx.lineWidth = 3; ctx.strokeStyle = PAPER; ctx.strokeRect(7, 7, W - 14, H - 14);
+  ctx.globalAlpha = 1;
 }
 
 function drawBurst(b) {
@@ -1449,6 +1725,13 @@ function drawHud() {
       ctx.fillStyle = PAPER; ctx.fillText(u.glyph, x, y + 1);
       inkText('2x TAP!', x, y - r - 10, 14, COL.gold);
     } else inkText(String(Math.ceil(S.ult.cd)), x, y + 1, 16, PAPER);
+    const lv = S.ult.lv || 1;                                         // ultimate level badge
+    slant(x + r - 14, y + r - 12, 30, 14, u.color || COL.gold, 0, 4);
+    plainText('LV' + lv, x + r + 1, y + r - 5, 10, INK);
+    if (S.ultLvFlash > 0) {
+      ctx.globalAlpha = Math.min(1, S.ultLvFlash); ctx.lineWidth = 4; ctx.strokeStyle = COL.gold;
+      ctx.beginPath(); ctx.arc(x, y, r + 6 + (1.6 - S.ultLvFlash) * 30, 0, TAU); ctx.stroke(); ctx.globalAlpha = 1;
+    }
   }
   // pilot face, bottom right: calm, hurt or critical, and it flinches when you're hit
   if (S.shipId && typeof PILOTS !== 'undefined') {
@@ -1951,8 +2234,11 @@ function drawCutin() {
   // the big diagonal slab
   ctx.save(); ctx.translate(W / 2, H * 0.52); ctx.rotate(-0.3);
   const sx = (1 - easeOut(clamp(t / 0.22, 0, 1))) * -W * 2.2 + out * W * 2.2;
+  ctx.fillStyle = u.color || COL.gold; ctx.fillRect(-sx * 0.8 - W * 1.5, -H * 0.2 - 40, W * 3, 30);   // a counter-sliding stripe in the ultimate's colour
   ctx.fillStyle = COL.gold; ctx.fillRect(sx - W * 1.5, -H * 0.2 - 12, W * 3, 12);
   ctx.fillStyle = COL.red; ctx.fillRect(sx - W * 1.5, -H * 0.2, W * 3, H * 0.4);
+  ctx.save(); ctx.globalAlpha = 0.25; ctx.font = `700 ${H * 0.34}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = INK; ctx.fillText(u.glyph, sx - W * 0.25 + t * 40, 0); ctx.restore();
   if (dotPattern) { ctx.globalAlpha = 0.3; ctx.fillStyle = dotPattern; ctx.fillRect(sx - W * 1.5, -H * 0.2, W * 3, H * 0.4); ctx.globalAlpha = 1; }
   ctx.fillStyle = INK; ctx.fillRect(sx - W * 1.5, H * 0.2, W * 3, 16);
   ctx.restore();
@@ -1982,6 +2268,11 @@ function drawCutin() {
     inkText(u.name.toUpperCase() + '!', 0, 0, 58, COL.gold, 'center', FONT_D, 10);
     ctx.restore();
   }
+  if (tk > 0) {                                     // level stars
+    const L = (S.ult && S.ult.lv) || 1;
+    for (let i = 0; i < L; i++) sparkle(W / 2 + (i - (L - 1) / 2) * 24 + out * W, H * 0.74 - 46 - i % 2 * 4, 8 * easeOutBack(clamp((t - 0.4 - i * 0.05) / 0.2, 0, 1)));
+  }
+  if (t > 0.3 && t < 0.36) { ctx.fillStyle = PAPER; ctx.globalAlpha = 0.85; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }   // impact flash as the name slams
   const qk = easeOutBack(clamp((t - 0.55) / 0.25, 0, 1));
   if (qk > 0) {
     ctx.save(); ctx.translate(-(1 - qk) * W - out * W, 0);

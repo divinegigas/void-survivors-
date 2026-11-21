@@ -56,6 +56,12 @@ function buildGraph() {
   AUD.verb = AC.createConvolver(); AUD.verb.buffer = ir;
   AUD.verbIn = node('gain', { gain: 1 });
   chain(AUD.verbIn, AUD.verb, node('gain', { gain: 0.32 }), AUD.song);
+  // a big dark hall for the ultimates (on the effects bus, so it isn't ducked with the music)
+  const hl = Math.floor(AC.sampleRate * 2.6), hir = AC.createBuffer(2, hl, AC.sampleRate);
+  for (let c = 0; c < 2; c++) { const d = hir.getChannelData(c); for (let i = 0; i < hl; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / hl, 3.2); }
+  AUD.hall = AC.createConvolver(); AUD.hall.buffer = hir;
+  AUD.hallIn = node('gain', { gain: 1 });
+  chain(AUD.hallIn, AUD.hall, node('gain', { gain: 0.5 }), AUD.sfx);
 
   // white noise for drums and effects
   const nb = AC.createBuffer(1, AC.sampleRate, AC.sampleRate), nd = nb.getChannelData(0);
@@ -622,8 +628,8 @@ const SFX = {
   cutin:   (t) => cutinStinger(t),
   hit:     (t) => { hiss(t, 'lowpass', 420, 0.25, 0.3); blip(t, 'square', 140, 55, 0.2, 0.08); },
   shield:  (t) => blip(t, 'sine', 1100, 2600, 0.15, 0.07),
-  ult:     (t) => { const f = hiss(t, 'bandpass', 300, 0.6, 0.12, 1.5); f.frequency.exponentialRampToValueAtTime(4000, t + 0.5);
-                    [64, 71, 76].forEach(m => blip(t + 0.05, 'sawtooth', mf(m), 0, 0.5, 0.035)); },
+  ult:     (t, id) => ultBlast(t, id),
+  ultup:   (t) => ultLevelUpSting(t),
   warning: (t) => { for (let i = 0; i < 4; i++) blip(t + i * 0.36, 'square', i % 2 ? 330 : 440, 0, 0.3, 0.05); },
   victory: (t) => [64, 68, 71, 76, 80, 83, 88].forEach((m, i) => blip(t + i * 0.09, 'triangle', mf(m), 0, 0.4, 0.07)),
   gameover:(t) => [64, 63, 62, 52].forEach((m, i) => blip(t + i * 0.22, 'sawtooth', mf(m), 0, 0.35, 0.05)),
@@ -655,8 +661,12 @@ function cardPick(t, tier) {
 // ULTIMATE CUT-IN: a rising whoosh, a huge impact, then a heroic chord stab
 function cutinStinger(t) {
   const w = hiss(t, 'bandpass', 250, 0.3, 0.16, 2); w.frequency.exponentialRampToValueAtTime(5000, t + 0.28);
+  const sw = node('filter', { type: 'highpass', frequency: 2500 }), sg = AC.createGain();     // reverse-cymbal swell into the hit
+  sg.gain.setValueAtTime(0.0001, t); sg.gain.exponentialRampToValueAtTime(0.14, t + 0.3); sg.gain.setValueAtTime(0.0001, t + 0.31);
+  sw.connect(sg); sg.connect(AUD.sfx); noise(t, 0.32, sw);
   const ti = t + 0.3;
   blip(ti, 'sine', 150, 38, 0.6, 0.5);
+  const sub = env(AUD.hallIn, ti, 0.35, 0.003, 0.4); osc('sine', 55, ti, 1, sub);
   hiss(ti, 'lowpass', 900, 0.5, 0.35);
   crashFx(ti);
   const filt = node('filter', { type: 'lowpass', frequency: 900, Q: 3 });
@@ -667,6 +677,64 @@ function cutinStinger(t) {
   for (const m of [40, 47, 52, 59, 64]) { osc('sawtooth', mf(m), ti, 1.3, filt, -7); osc('sawtooth', mf(m), ti, 1.3, filt, 7); }
   [76, 83, 88].forEach((m, i) => blip(ti + 0.45 + i * 0.07, 'triangle', mf(m), 0, 0.4, 0.06));
 }
+// ULTIMATE FIRES: sub-bass drop + distorted impact + a huge power-chord stab drenched in hall
+// reverb + a sparkle run, then a flavour layer for each ultimate.
+function ultBlast(t, id) {
+  const wet = d => { const g = node('gain', { gain: d }); g.connect(AUD.hallIn); return g; };
+  // sub drop
+  const sub = env(AUD.sfx, t, 0.45, 0.004, 0.5); const so = osc('sine', 120, t, 1.4, sub); so.frequency.exponentialRampToValueAtTime(26, t + 1.2);
+  // impact: crushed noise burst + crash
+  const imp = node('filter', { type: 'lowpass', frequency: 1800 }); const sh = node('shaper', { curve: shaperCurve(40) });
+  chain(imp, sh, env(AUD.sfx, t, 0.22, 0.002, 0.18)); noise(t, 0.5, imp);
+  crashFx(t); crashFx(t + 0.02);
+  // power chord stab with a filter sweep (root changes per ultimate)
+  const root = { nuke: 38, overdrive: 45, warp: 41, barrage: 43, phase: 46, hole: 36 }[id] || 40;
+  const filt = node('filter', { type: 'lowpass', frequency: 600, Q: 4 });
+  filt.frequency.setValueAtTime(600, t); filt.frequency.exponentialRampToValueAtTime(6500, t + 0.25); filt.frequency.exponentialRampToValueAtTime(900, t + 1.4);
+  const g = env(AUD.sfx, t, 0.085, 0.005, 0.6, 0.35); chain(filt, node('shaper', { curve: shaperCurve(20) }), g); g.connect(wet(1.4));
+  for (const m of [root, root + 7, root + 12, root + 19, root + 24]) { osc('sawtooth', mf(m), t, 1.8, filt, -9); osc('sawtooth', mf(m), t, 1.8, filt, 9); }
+  // sparkle run
+  [0, 4, 7, 12, 16, 19, 24, 28].forEach((k, i) => { const gg = env(AUD.sfx, t + 0.08 + i * 0.035, 0.05, 0.002, 0.12); gg.connect(wet(0.8)); osc('triangle', mf(root + 36 + k), t + 0.08 + i * 0.035, 0.3, gg); });
+  // flavour
+  switch (id) {
+    case 'nuke': {                                  // long rolling rumble
+      for (let k = 0; k < 3; k++) { const f = node('filter', { type: 'lowpass', frequency: 260 - k * 50 }); f.connect(env(AUD.sfx, t + k * 0.6, 0.3, 0.05, 0.7)); noise(t + k * 0.6, 1, f, 0); }
+      blip(t + 0.15, 'sine', 70, 22, 2.2, 0.4); break;
+    }
+    case 'overdrive': {                             // engine scream rising
+      const f = node('filter', { type: 'bandpass', frequency: 400, Q: 3 }); f.frequency.exponentialRampToValueAtTime(3500, t + 1);
+      f.connect(env(AUD.sfx, t, 0.09, 0.05, 0.5, 0.6)); const o = osc('sawtooth', 90, t, 1.6, f); o.frequency.exponentialRampToValueAtTime(420, t + 1.2); break;
+    }
+    case 'warp': {                                  // tape-stop: everything slides down
+      const gg = env(AUD.sfx, t, 0.1, 0.01, 0.5, 0.5); gg.connect(wet(1.5));
+      for (const m of [64, 67, 71]) { const o = osc('square', mf(m), t, 1.5, gg); o.frequency.exponentialRampToValueAtTime(mf(m) / 6, t + 1.3); }
+      for (let i = 0; i < 6; i++) blip(t + 0.2 + i * 0.18 * (1 + i * 0.25), 'sine', 1760, 0, 0.05, 0.05);   // a slowing clock tick
+      break;
+    }
+    case 'barrage':                                 // a volley of launches
+      for (let i = 0; i < 10; i++) { const f = hiss(t + 0.05 + i * 0.06, 'bandpass', 900, 0.2, 0.06, 2); f.frequency.exponentialRampToValueAtTime(3000, t + 0.25 + i * 0.06); }
+      break;
+    case 'phase': {                                 // shimmering phase sweep
+      const gg = env(AUD.hallIn, t, 0.08, 0.05, 0.6, 0.4);
+      for (const m of [76, 83, 88]) osc('sawtooth', mf(m), t, 1.4, gg, 12);
+      const f = hiss(t, 'bandpass', 2000, 1.2, 0.07, 6); f.frequency.exponentialRampToValueAtTime(400, t + 1.1); break;
+    }
+    case 'hole': {                                  // a deep falling vortex with a wobble
+      const gg = env(AUD.sfx, t, 0.22, 0.02, 0.8, 0.4); const o = osc('sine', 220, t, 2, gg); o.frequency.exponentialRampToValueAtTime(30, t + 1.8);
+      const lfo = AC.createOscillator(); lfo.frequency.value = 7; const lg = AC.createGain(); lg.gain.value = 25; lfo.connect(lg); lg.connect(o.frequency); lfo.start(t); lfo.stop(t + 2);
+      const f = hiss(t, 'lowpass', 3000, 1.6, 0.12); f.frequency.exponentialRampToValueAtTime(120, t + 1.5); break;
+    }
+  }
+}
+// ULTIMATE LEVELS UP: a brass-ish fanfare climbing in fourths, then a shimmering chord
+function ultLevelUpSting(t) {
+  levelUpFanfare(t);
+  [52, 57, 62, 67].forEach((m, i) => {
+    const f = node('filter', { type: 'lowpass', frequency: 1800 }); f.connect(env(AUD.sfx, t + 0.5 + i * 0.12, 0.07, 0.01, 0.2));
+    osc('sawtooth', mf(m), t + 0.5 + i * 0.12, 0.5, f, -6); osc('sawtooth', mf(m + 12), t + 0.5 + i * 0.12, 0.5, f, 6);
+  });
+  blip(t + 0.98, 'sine', 110, 35, 0.7, 0.45); crashFx(t + 0.98);
+}
 function crashFx(t) { const f = node('filter', { type: 'highpass', frequency: 3000 }); f.connect(env(AUD.sfx, t, 0.15, 0.002, 0.6)); noise(t, 1.5, f); }
 
 // ============================================================================
@@ -675,7 +743,7 @@ function crashFx(t) { const f = node('filter', { type: 'highpass', frequency: 30
 let lastMusicLevel = -1, laserHum = null;
 function audioUpdate() {
   if (!AC || !S) return;
-  const level = !PREF.music ? 0 : S.state === 'paused' ? 0.12 : S.state === 'cutin' ? 0.2 : S.state === 'levelup' ? 0.6 : 1;
+  const level = !PREF.music ? 0 : S.state === 'paused' ? 0.12 : S.state === 'cutin' ? 0.2 : S.state === 'levelup' ? 0.6 : S.impact > 0 || (S.ultFx && S.ultFx.t < 0.8) ? 0.4 : 1;
   if (level !== lastMusicLevel) { lastMusicLevel = level; AUD.music.gain.setTargetAtTime(MUSIC_VOL * level, AC.currentTime, 0.15); }
   AUD.sfx.gain.setTargetAtTime(PREF.sfx ? SFX_VOL : 0, AC.currentTime, 0.05);
   MUS.intense = S.state === 'play' && S.enemies.some(e => e.boss && !e.dead);

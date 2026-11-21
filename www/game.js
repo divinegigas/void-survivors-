@@ -30,6 +30,11 @@ const CFG = {
   ultLevel: 10,               // level that offers a choice of ultimate (double-tap to fire)
   ultCooldownMul: 1,          // 0.5 = ultimates recharge twice as fast
   ultCutin: 1.8,              // seconds the game freezes for the ultimate's splash screen (0 = no splash)
+  ultLevelEvery: 10,          // the ultimate levels up every 10 pilot levels (Lv 20 -> ult Lv 2, Lv 30 -> Lv 3...)
+  ultMaxLevel: 5,
+  ultCooldownPerLevel: 0.08,  // each ultimate level recharges 8% faster
+  ultImpact: 0.35,            // seconds of slow-motion "impact frame" right after the ultimate fires
+  miniBossHpMul: 1.25,        // mini-bosses get this much extra health on top of bossHpMul
   signatureCooldown: 0.8,     // a ship's own weapon fires 20% faster than the same weapon picked up later (1 = no bonus)
   rarityWeights: { common: 4, uncommon: 2, rare: 1 },   // common is 2x as likely as uncommon, which is 2x rare
   shipCost: { common: 300, uncommon: 900, rare: 2000 }, // credits to unlock a ship, by its weapon's tier
@@ -229,7 +234,7 @@ function resize() {
 // .speed (projectile speed), .pierce.
 // ============================================================================
 function shoot(b) { S.bullets.push(b); return b; }
-const cd = base => base * S.mod.cd * (S.sig ? CFG.signatureCooldown : 1) * (S.overdrive > 0 ? 0.33 : 1);
+const cd = base => base * S.mod.cd * (S.sig ? CFG.signatureCooldown : 1) * (S.overdrive > 0 ? ultOverdriveMul(ultLv()) : 1);
 const spd = v => v * S.mod.speed;
 function nearestEnemy(x, y, maxDist, skip) {
   let best = null, bd = maxDist * maxDist;
@@ -453,28 +458,39 @@ const WEAPONS = {
 // ============================================================================
 // Ultimates: offered at CFG.ultLevel. Double-tap the screen to fire; long cooldown.
 // ============================================================================
+// Ultimates level up every CFG.ultLevelEvery pilot levels. L = ultimate level (1-5).
 const ULTS = {
-  nuke:      { name: 'Megaton',       glyph: '☢', word: 'KA-BOOM!',   cooldown: 75,
+  nuke:      { name: 'Megaton',       glyph: '☢', word: 'KA-BOOM!',   cooldown: 75, color: '#ffd60a',
                desc: 'Hits every enemy on screen for huge damage and wipes all bullets',
-               fire() { for (const e of S.enemies) if (!e.dead && e.y > -10) hitEnemy(e, 400, true);
-                        for (const b of S.ebullets) b.dead = true; S.shake = 0.8; S.whiteout = 0.35; } },
-  overdrive: { name: 'Overdrive',     glyph: '⚡', word: 'OVERDRIVE!', cooldown: 60,
+               up: L => `${400 + 200 * (L - 1)} damage to everything`,
+               fire(L) { for (const e of S.enemies) if (!e.dead && e.y > -10) hitEnemy(e, 400 + 200 * (L - 1), true);
+                         for (const b of S.ebullets) b.dead = true; S.shake = 1; S.whiteout = 0.35;
+                         S.mushroom = { x: S.p.x, y: Math.max(140, S.p.y - 220), t: 0 }; } },
+  overdrive: { name: 'Overdrive',     glyph: '⚡', word: 'OVERDRIVE!', cooldown: 60, color: '#2ec5ff',
                desc: 'All weapons fire 3x faster for 8 seconds',
-               fire() { S.overdrive = 8; for (const id in S.weapons) S.weapons[id].t = 0; } },
-  warp:      { name: 'Time Warp',     glyph: '⌛', word: 'TIME WARP!', cooldown: 60,
+               up: L => `${8 + 2 * (L - 1)}s, weapons ${Math.round(1 / ultOverdriveMul(L) * 10) / 10}x faster`,
+               fire(L) { S.overdrive = 8 + 2 * (L - 1); for (const id in S.weapons) S.weapons[id].t = 0; } },
+  warp:      { name: 'Time Warp',     glyph: '⌛', word: 'TIME WARP!', cooldown: 60, color: '#7de0ff',
                desc: 'Enemies and their bullets crawl at quarter speed for 7 seconds',
-               fire() { S.warp = 7; } },
-  barrage:   { name: 'Missile Storm', glyph: '➹', word: 'WHOOSH!',    cooldown: 50,
+               up: L => `${7 + 1.5 * (L - 1)}s of slow time`,
+               fire(L) { S.warp = 7 + 1.5 * (L - 1); } },
+  barrage:   { name: 'Missile Storm', glyph: '➹', word: 'WHOOSH!',    cooldown: 50, color: '#ff8c1a',
                desc: 'Launches 32 homing missiles over two seconds',
-               fire() { S.barrage = { left: 32, t: 0 }; } },
-  phase:     { name: 'Phase Ram',     glyph: '◈', word: 'PHASE RAM!', cooldown: 50,
+               up: L => `${32 + 10 * (L - 1)} missiles, ${40 + 10 * (L - 1)} damage each`,
+               fire(L) { S.barrage = { left: 32 + 10 * (L - 1), t: 0, dmg: 40 + 10 * (L - 1) }; } },
+  phase:     { name: 'Phase Ram',     glyph: '◈', word: 'PHASE RAM!', cooldown: 50, color: '#ff3fa4',
                desc: 'Untouchable for 6 seconds: ram enemies and eat bullets',
-               fire() { S.phase = 6; } },
-  hole:      { name: 'Black Hole',    glyph: '◉', word: 'VWOOMP!',    cooldown: 65,
+               up: L => `${6 + 1.5 * (L - 1)}s, ram damage x${(1 + 0.4 * (L - 1)).toFixed(1)}`,
+               fire(L) { S.phase = 6 + 1.5 * (L - 1); } },
+  hole:      { name: 'Black Hole',    glyph: '◉', word: 'VWOOMP!',    cooldown: 65, color: '#a45cff',
                desc: 'A black hole sucks in enemies and bullets for 6 seconds',
-               fire() { S.hole = { x: S.p.x, y: Math.max(130, S.p.y - 200), t: 6 }; } },
+               up: L => `${6 + (L - 1)}s, pull radius ${170 + 25 * (L - 1)}`,
+               fire(L) { S.hole = { x: S.p.x, y: Math.max(130, S.p.y - 200), t: 6 + (L - 1), R: 170 + 25 * (L - 1), dmg: 160 * (1 + 0.4 * (L - 1)) }; } },
 };
-const ultCooldown = id => ULTS[id].cooldown * CFG.ultCooldownMul;
+const ultOverdriveMul = L => Math.max(0.2, 0.33 - 0.03 * (L - 1));
+const ultLevelFor = lvl => clamp(1 + Math.floor((lvl - CFG.ultLevel) / CFG.ultLevelEvery), 1, CFG.ultMaxLevel);
+const ultLv = () => (S && S.ult && S.ult.lv) || 1;
+const ultCooldown = (id, L) => Math.round(ULTS[id].cooldown * CFG.ultCooldownMul * (1 - CFG.ultCooldownPerLevel * ((L || ultLv()) - 1)));
 
 // Double-tap: the game freezes for a dramatic cut-in, then the ultimate fires.
 function activateUlt() {
@@ -486,11 +502,27 @@ function activateUlt() {
   } else fireUlt(S.ult.id);
 }
 function fireUlt(id) {
-  const u = ULTS[id];
-  u.fire();
-  snd('ult');
-  burst(W / 2, S.p.y - 90, 70, u.word, COL.gold);
-  buzz([40, 30, 80]);
+  const u = ULTS[id], L = ultLv();
+  u.fire(L);
+  snd('ult', id);
+  burst(W / 2, S.p.y - 90, 70 + 8 * L, u.word, u.color);
+  S.ultFx = { t: 0, id, color: u.color, x: S.p.x, y: S.p.y, L };      // shockwaves, flash, speed lines (drawn in art.js)
+  S.impact = CFG.ultImpact;                                             // a beat of slow motion
+  S.shake = Math.max(S.shake, 0.7);
+  for (let i = 0; i < 3; i++) S.novas.push({ x: S.p.x, y: S.p.y, r: 0, max: 220 + i * 110, dmg: 0, age: 0, hit: null, color: i === 1 ? PAPER : u.color });
+  sparks(S.p.x, S.p.y, u.color, 40); sparks(S.p.x, S.p.y, COL.gold, 20);
+  buzz([40, 30, 120]);
+}
+function ultLevelCheck() {         // every 10 pilot levels the ultimate gets stronger
+  if (!S.ult) return;
+  const lv = ultLevelFor(S.level);
+  if (lv > (S.ult.lv || 1)) {
+    S.ult.lv = lv; S.ult.cd = 0;
+    const u = ULTS[S.ult.id];
+    burst(W / 2, S.p.y - 120, 74, `${u.name.toUpperCase()} LV ${lv}!`, u.color);
+    floatText(W / 2, S.p.y - 70, u.up(lv), COL.gold, 11);
+    S.ultLvFlash = 1.6; snd('ultup'); buzz([30, 30, 30, 30, 60]);
+  }
 }
 function finishCutin() {
   const id = S.cutin.id;
@@ -500,6 +532,9 @@ function finishCutin() {
 
 function updateUlts(dt) {
   if (S.ult) S.ult.cd = Math.max(0, S.ult.cd - dt);
+  if (S.ultFx && (S.ultFx.t += dt) > 1.4) S.ultFx = null;
+  if (S.mushroom && (S.mushroom.t += dt) > 1.6) S.mushroom = null;
+  S.ultLvFlash = Math.max(0, (S.ultLvFlash || 0) - dt);
   S.overdrive = Math.max(0, (S.overdrive || 0) - dt);
   S.warp = Math.max(0, (S.warp || 0) - dt);
   S.phase = Math.max(0, (S.phase || 0) - dt);
@@ -508,23 +543,23 @@ function updateUlts(dt) {
   if (S.barrage && (S.barrage.t -= dt) <= 0) {
     S.barrage.t = 0.06;
     const side = S.barrage.left % 2 ? 1 : -1;
-    shoot({ x: p.x + side * 12, y: p.y, vx: side * rand(150, 260), vy: rand(-60, 40), r: 4, dmg: 40, aoe: 30,
+    shoot({ x: p.x + side * 12, y: p.y, vx: side * rand(150, 260), vy: rand(-60, 40), r: 4, dmg: S.barrage.dmg || 40, aoe: 30,
             kind: 'rocket', life: 3.5, target: null, retarget: 0, color: '#ff8c1a' });
     if (--S.barrage.left <= 0) S.barrage = null;
   }
   if (S.phase > 0) {
-    for (const e of S.enemies) if (!e.dead && (e.x - p.x) ** 2 + (e.y - p.y) ** 2 < (e.r + 24) ** 2) hitEnemy(e, 220 * dt, true);
+    for (const e of S.enemies) if (!e.dead && (e.x - p.x) ** 2 + (e.y - p.y) ** 2 < (e.r + 24) ** 2) hitEnemy(e, 220 * (1 + 0.4 * (ultLv() - 1)) * dt, true);
     clearBulletsNear(p.x, p.y, 26);
   }
   const h = S.hole;
   if (h) {
     h.t -= dt;
-    const R = 170;
+    const R = h.R || 170;
     for (const e of S.enemies) {
       if (e.dead) continue;
       const dx = h.x - e.x, dy = h.y - e.y, d = Math.hypot(dx, dy) || 1;
       if (d < R && !e.boss) { const pull = (60 + 200 * (1 - d / R)) * dt; e.x += dx / d * pull; e.y += dy / d * pull; if (e.bx !== undefined) e.bx += dx / d * pull; }
-      if (d < 40 + e.r) hitEnemy(e, 160 * dt, true);
+      if (d < 40 + e.r) hitEnemy(e, (h.dmg || 160) * dt, true);
     }
     for (const b of S.ebullets) {
       const dx = h.x - b.x, dy = h.y - b.y, d = Math.hypot(dx, dy) || 1;
@@ -645,25 +680,25 @@ function newGame(state, stage) {
 // Enemies
 // ============================================================================
 // ============================================================================
-// Stages. Each: 7 minutes, 3 mini-bosses (same brains, new skins), its own
+// Stages. Each: 7 minutes, its own 3 mini-bosses, its own
 // enemies, final boss, music, look, wave mix and loadout slots.
 // foes: which creature fills each role (drone / weaver / diver / gunner) on that stage.
 // ============================================================================
 const STAGES = [null,
   { name: 'HIVE FLEET', sub: 'Break through the swarm', music: 'level1', final: 'queen', slots: [2, 2],
-    minis: { brute: ['BROOD BRUTE', '#6d3a8f'], mother: ['SPORE MOTHER', '#62b39a'], stalker: ['SCYTHE WRAITH', '#d8ccb4'] },
+    minis: ['brute', 'mother', 'stalker'],
     foes: { drone: 'drone', weaver: 'weaver', diver: 'diver', gunner: 'gunner' }, waves: { single: 3, line: 3, snake: 2, divers: 1.5, gunner: 1.2 } },
   { name: 'WARP ZONE', sub: 'Reality bends at lightspeed', music: 'level2', final: 'wyrm', slots: [3, 3],
-    minis: { brute: ['PHASE BRUTE', '#5b6bd6'], mother: ['FLUX MOTHER', '#c86bff'], stalker: ['RIFT WRAITH', '#9be8ff'] },
+    minis: ['manta', 'oculus', 'static'],
     foes: { drone: 'blinker', weaver: 'phaseel', diver: 'streak', gunner: 'prism' }, waves: { single: 2, line: 3, snake: 2, divers: 3, gunner: 1.3 } },
   { name: 'THE DEEP', sub: 'Something ancient is waiting below', music: 'level3', final: 'maw', slots: [4, 4],
-    minis: { brute: ['REEF CRUSHER', '#3f8f8a'], mother: ['SIREN SAC', '#9fd6c8'], stalker: ['DEEP REAPER', '#c8d0e0'] },
+    minis: ['nautilus', 'siren', 'gulper'],
     foes: { drone: 'jelly', weaver: 'eel', diver: 'piranha', gunner: 'urchin' }, waves: { single: 2, line: 2, snake: 4, divers: 1.5, gunner: 1.6 } },
   { name: 'INSIDE THE LEVIATHAN', sub: 'Fly down its throat. Stop its heart.', music: 'level4', final: 'heart', slots: [5, 5],
-    minis: { brute: ['BILE TICK', '#8a2a3a'], mother: ['POLYP MOTHER', '#d47a8a'], stalker: ['MARROW WRAITH', '#e8d8c0'] },
+    minis: ['bladder', 'parasite', 'phagocyte'],
     foes: { drone: 'fluke', weaver: 'tapeworm', diver: 'leech', gunner: 'polyp' }, waves: { single: 4, line: 3, snake: 2, divers: 2, gunner: 2 } },
   { name: 'PRISMATIC VOID', sub: 'Beyond reality. Something divine and wrong.', music: 'level5', final: 'seraph', slots: [6, 6],
-    minis: { brute: ['PRISM BRUTE', '#a88aff'], mother: ['HALO MOTHER', '#ffd0f0'], stalker: ['MIRROR WRAITH', '#e0f0ff'] },
+    minis: ['knight', 'choir', 'reflection'],
     foes: { drone: 'shard', weaver: 'halo', diver: 'mirror', gunner: 'cherub' }, waves: { single: 3, line: 3, snake: 3, divers: 3, gunner: 2 } },
 ];
 const STAGE_COUNT = STAGES.length - 1;
@@ -680,6 +715,19 @@ const ENEMY = {
   brute:   { name: 'BROOD BRUTE',    hp: 2200, r: 44, xp: 25, credits: 40,  color: '#6d3a8f', blood: 'P', boss: true },
   mother:  { name: 'SPORE MOTHER',   hp: 3600, r: 48, xp: 30, credits: 60,  color: '#62b39a', blood: 'G', boss: true },
   stalker: { name: 'SCYTHE WRAITH',  hp: 5200, r: 42, xp: 35, credits: 80,  color: '#d8ccb4', blood: 'P', boss: true },
+  // stage 2-5 mini-bosses (1st / 2nd / 3rd of each stage use the same base health as the stage 1 trio)
+  manta:     { name: 'RIFT MANTA',      hp: 2200, r: 44, xp: 25, credits: 40, color: '#5b6bd6', blood: 'P', boss: true },
+  oculus:    { name: 'FLUX OCULUS',     hp: 3600, r: 40, xp: 30, credits: 60, color: '#c86bff', blood: 'P', boss: true },
+  static:    { name: 'STATIC WRAITH',   hp: 5200, r: 40, xp: 35, credits: 80, color: '#9be8ff', blood: 'P', boss: true },
+  nautilus:  { name: 'DREAD NAUTILUS',  hp: 2200, r: 46, xp: 25, credits: 40, color: '#3f8f8a', blood: 'G', boss: true },
+  siren:     { name: 'SIREN BLOOM',     hp: 3600, r: 46, xp: 30, credits: 60, color: '#9fd6c8', blood: 'G', boss: true },
+  gulper:    { name: 'GULPER KING',     hp: 5200, r: 42, xp: 35, credits: 80, color: '#c8d0e0', blood: 'P', boss: true },
+  bladder:   { name: 'BILE BLADDER',    hp: 2200, r: 46, xp: 25, credits: 40, color: '#8a2a3a', blood: 'G', boss: true },
+  parasite:  { name: 'PARASITE KING',   hp: 3600, r: 42, xp: 30, credits: 60, color: '#d47a8a', blood: 'PG', boss: true },
+  phagocyte: { name: 'PHAGOCYTE',       hp: 5200, r: 44, xp: 35, credits: 80, color: '#e8d8c0', blood: 'G', boss: true },
+  knight:    { name: 'PRISM KNIGHT',    hp: 2200, r: 42, xp: 25, credits: 40, color: '#a88aff', blood: 'PG', boss: true },
+  choir:     { name: 'HALO CHOIR',      hp: 3600, r: 46, xp: 30, credits: 60, color: '#ffd0f0', blood: 'PG', boss: true },
+  reflection:{ name: 'THE REFLECTION',  hp: 5200, r: 40, xp: 35, credits: 80, color: '#e0f0ff', blood: 'PG', boss: true },
   queen:   { name: 'HIVE QUEEN',     hp: 11000, r: 66, xp: 0,  credits: 300, color: '#b0203a', blood: 'PG', boss: true, final: true },
   wyrm:    { name: 'WARP WYRM',      hp: 9000,  r: 40, xp: 0,  credits: 300, color: '#7a3cff', blood: 'P',  boss: true, final: true },
   maw:     { name: 'ABYSSAL MAW',    hp: 10000, r: 56, xp: 0,  credits: 300, color: '#2f6f7a', blood: 'G',  boss: true, final: true },
@@ -713,20 +761,20 @@ const FOE = {
 const BLOOD = { P: '#9b3fd6', G: '#c4cf1f' };      // purple ichor and acid-yellow-green bile (kept away from the gem mint)
 const bloodOf = e => { const b = e.blood || ENEMY[e.type].blood || 'G'; return BLOOD[b.length > 1 ? pick(b.split('')) : b]; };
 const LEVEL_EVENTS = () => [
-  ...CFG.level.miniBosses.map((t, i) => ({ t, type: ['brute', 'mother', 'stalker'][i] })),
+  ...CFG.level.miniBosses.map((t, i) => ({ t, type: stageDef().minis[i] })),
   { t: CFG.level.length, type: stageDef().final },
 ];
-const enemyName = type => (stageDef().minis[type] || [ENEMY[type].name])[0];
+const enemyName = type => ENEMY[type].name;
 
 function spawnEnemy(type, x, y, extra) {
   const d = ENEMY[type], st = stageDef(), k = stageD(), sc = CFG.stageScale;
   const hp = d.final ? d.hp * CFG.bossHpMul * (1 + sc.finalHp * k)       // bosses have fixed health per stage
-           : d.boss ? d.hp * CFG.bossHpMul * (1 + sc.bossHp * k)
+           : d.boss ? d.hp * CFG.bossHpMul * CFG.miniBossHpMul * (1 + sc.bossHp * k)
            : d.hp * (1 + CFG.enemyHpGrowthPerMin * (1 + sc.hpGrowth * k) * S.t / 60) * (1 + sc.enemyHp * k);
-  const mini = st.minis[type], foe = !d.boss && FOE[(st.foes || {})[type] || type], color = mini ? mini[1] : foe ? foe.color : d.color;
+  const foe = !d.boss && FOE[(st.foes || {})[type] || type], color = foe ? foe.color : d.color;
   const e = Object.assign({ type, x, y, hp, maxHp: hp, r: d.final ? d.r * CFG.finalBossSize : d.r,
                             look: foe ? st.foes[type] : type, blood: foe ? foe.blood : d.blood, xp: d.xp, credits: d.credits * (1 + sc.credits * k), color, boss: !!d.boss, final: !!d.final,
-                            name: mini ? mini[0] : foe ? foe.name : d.name,
+                            name: foe ? foe.name : d.name,
                             age: 0, flash: 0, mode: 0, fireT: rand(0.8, 2.0), vx: 0, vy: 0 }, extra);
   S.enemies.push(e);
   return e;
@@ -1008,7 +1056,153 @@ function bossSeraph(e, dt) {
     if ((e.featherT -= dt) <= 0) { e.featherT = 1.1; const a = aimAt(e); for (let k = -3; k <= 3; k++) enemyShot(e.x, e.y + 20, a + k * 0.08, 1.2); }
   }
 }
+
+// ---- Stage 2-5 mini-bosses: each stage has its own three. All have an angry second half.
+const ring = (x, y, n, sp, off, extra) => { for (let k = 0; k < n; k++) enemyShot(x, y, (off || 0) + (k / n) * TAU, sp, extra); };
+const fan = (x, y, a, n, step, sp, extra) => { for (let k = 0; k < n; k++) enemyShot(x, y, a + (k - (n - 1) / 2) * step, sp, extra); };
+const tick = (e, key, every) => { if ((e[key] = (e[key] === undefined ? every : e[key]) - S.dtNow) <= 0) { e[key] = every; return true; } return false; };
+const angryOf = e => e.hp < e.maxHp / 2;
+function bossGlide(e, speed, margin, bob) {
+  e.sway += S.dtNow;
+  e.x = W / 2 + Math.sin(e.sway * speed) * (W / 2 - margin);
+  e.y = e.ty + Math.sin(e.sway * 0.9) * (bob || 0);
+}
+
+// STAGE 2
+function bossManta(e, dt) {        // RIFT MANTA: glides, drops curtains, wingtip streams, warps when hurt
+  if (bossEnter(e, dt)) return;
+  const angry = angryOf(e); bossGlide(e, 0.45, 70, 8);
+  if (tick(e, 'laneT', angry ? 2.4 : 3.2)) { const gap = rand(50, W - 50); for (let x = 12; x < W; x += 22) if (Math.abs(x - gap) > 36) enemyShot(x, -6, Math.PI / 2, 0.65); }
+  if (tick(e, 'spinT', angry ? 0.1 : 0.16)) { e.spin += 0.18; for (const sd of [-1, 1]) enemyShot(e.x + sd * 50, e.y + 6, Math.PI / 2 + sd * Math.sin(e.spin) * 0.7, 0.9); }
+  if (angry && tick(e, 'warpT', 5)) { burst(e.x, e.y, 50, 'VWORP!', e.color); e.sway += rand(1.5, 3); bossGlide(e, 0.45, 70, 8); ring(e.x, e.y, 16, 0.75); }
+}
+function bossOculus(e, dt) {       // FLUX OCULUS: a giant eye; orbiting crystals shoot at you, it spirals when hurt
+  if (bossEnter(e, dt)) return;
+  const angry = angryOf(e); bossGlide(e, 0.3, 90, 14);
+  e.spin += dt * (angry ? 1.3 : 0.9);
+  const n = angry ? 5 : 3;
+  if (tick(e, 'shotT', angry ? 0.9 : 1.3)) for (let k = 0; k < n; k++) {
+    const a = e.spin + (k / n) * TAU, ox = e.x + Math.cos(a) * 62, oy = e.y + Math.sin(a) * 62;
+    enemyShot(ox, oy, Math.atan2(S.p.y - oy, S.p.x - ox), 1.0);
+  }
+  if (tick(e, 'ringT', 2.6)) ring(e.x, e.y, 18, 0.6, Math.random());
+  if (angry && tick(e, 'beamT', 0.12)) { e.ang = (e.ang || 0) + 0.25; enemyShot(e.x, e.y, e.ang, 0.85); enemyShot(e.x, e.y, e.ang + Math.PI, 0.85); }
+}
+function bossStatic(e, dt) {       // STATIC WRAITH: flickers between spots and fires from its ghost copies too
+  if (bossEnter(e, dt)) return;
+  const angry = angryOf(e);
+  if (!e.ghosts) e.ghosts = [];
+  if (tick(e, 'warpT', angry ? 2.2 : 3)) {
+    sparks(e.x, e.y, e.color, 20);
+    e.ghosts = [[e.x, e.y]]; if (angry) e.ghosts.push([W - e.x, e.y + 30]);
+    e.x = rand(70, W - 70); e.y = rand(100, 200); e.flick = 0.25;
+  }
+  e.flick = Math.max(0, (e.flick || 0) - dt);
+  if (tick(e, 'shotT', angry ? 0.8 : 1.1)) {
+    const a = aimAt(e); fan(e.x, e.y + 20, a, 5, 0.12, 1.1);
+    for (const [gx, gy] of e.ghosts) fan(gx, gy, Math.atan2(S.p.y - gy, S.p.x - gx), 3, 0.2, 0.8);
+  }
+  if (tick(e, 'laneT', 2.8)) for (let x = 20; x < W; x += 40) enemyShot(x + rand(-8, 8), -6, Math.PI / 2, 0.7, { r: 5 });   // static rain
+}
+// STAGE 3
+function bossNautilus(e, dt) {     // DREAD NAUTILUS: a spiral shell that spits spiral arms and slow ink blobs
+  if (bossEnter(e, dt)) return;
+  const angry = angryOf(e); bossGlide(e, 0.35, 80, 10);
+  if (tick(e, 'spinT', angry ? 0.09 : 0.13)) { e.spin += 0.31; enemyShot(e.x, e.y, e.spin, 0.7); if (angry) enemyShot(e.x, e.y, -e.spin + 1, 0.7); }
+  if (tick(e, 'shotT', angry ? 2 : 2.8)) fan(e.x, e.y + 30, aimAt(e), 3, 0.35, 0.45, { r: 10, wob: 20, wf: 2 });   // ink blobs
+  if (tick(e, 'spawnT', 7)) for (let i = 0; i < 3; i++) spawnEnemy('drone', e.x + (i - 1) * 40, e.y + 20, { vy: 100 });
+}
+function bossSiren(e, dt) {        // SIREN BLOOM: sings waves of swaying bubbles, calls jellies, a lure-burst when hurt
+  if (bossEnter(e, dt)) return;
+  const angry = angryOf(e); bossGlide(e, 0.25, 100, 8);
+  if (tick(e, 'shotT', angry ? 0.5 : 0.7)) { e.volley++; for (let k = -2; k <= 2; k++) enemyShot(e.x + k * 22, e.y + 30, Math.PI / 2, 0.5, { r: 6, wob: 55, wf: 2.2, age: e.volley * 0.7 }); }
+  if (tick(e, 'spawnT', angry ? 5 : 7)) for (let i = 0; i < 2; i++) spawnEnemy('drone', rand(40, W - 40), -20, { vy: 80 });
+  if (angry && tick(e, 'ringT', 3)) { ring(e.x, e.y, 14, 0.5, Math.random(), { acc: 1.2, vmax: 260 }); }
+}
+function bossGulper(e, dt) {       // GULPER KING: lunges down at you jaws first, fans of teeth on the way back
+  if (bossEnter(e, dt)) return;
+  const angry = angryOf(e);
+  e.patT -= dt;
+  if (e.mode === 1) {
+    e.x += (W / 2 + Math.sin(e.age * 0.6) * 100 - e.x) * Math.min(1, dt * 2);
+    e.y += (e.ty - e.y) * Math.min(1, dt * 3);
+    if (tick(e, 'shotT', angry ? 1 : 1.4)) fan(e.x, e.y + 30, aimAt(e), angry ? 9 : 7, 0.14, 0.9);
+    if (e.patT <= 0) { e.mode = 2; e.patT = 1.1; e.dashX = clamp(S.p.x, 50, W - 50); e.dashY = Math.min(S.p.y - 120, H * 0.55); burst(e.x, e.y + 40, 40, 'GULP!', e.color); }
+  } else {
+    e.x += (e.dashX - e.x) * Math.min(1, dt * 4); e.y += (e.dashY - e.y) * Math.min(1, dt * 4);
+    if (e.patT <= 0) { e.mode = 1; e.patT = angry ? 3 : 4.5; ring(e.x, e.y, angry ? 20 : 14, 0.7); }
+  }
+}
+// STAGE 4
+function bossBladder(e, dt) {      // BILE BLADDER: swells up, then bursts lobbed acid and accelerating rings
+  if (bossEnter(e, dt)) return;
+  const angry = angryOf(e); bossGlide(e, 0.4, 80, 6);
+  e.swell = Math.min(1, (e.swell || 0) + dt / (angry ? 2 : 3));
+  if (e.swell >= 1) {
+    e.swell = 0; S.shake = Math.max(S.shake, 0.25); burst(e.x, e.y + 30, 44, 'BLORP!', '#c4cf1f');
+    for (let k = 0; k < (angry ? 14 : 10); k++) enemyShot(e.x, e.y, -Math.PI / 2 + rand(-1.1, 1.1), rand(0.9, 1.5), { grav: 220, r: 6 });
+    ring(e.x, e.y, angry ? 20 : 14, 0.35, Math.random(), { acc: 1.5, vmax: 240 });
+  }
+  if (tick(e, 'shotT', 1.6)) fan(e.x, e.y + 30, aimAt(e), 3, 0.1, 1.0);
+}
+function bossParasite(e, dt) {     // PARASITE KING: whipping tail-arms of bullets, sheds flukes
+  if (bossEnter(e, dt)) return;
+  const angry = angryOf(e); bossGlide(e, 0.3, 90, 10);
+  e.spin += dt * (angry ? 1.6 : 1.1) * (Math.sin(e.age * 0.4) > 0 ? 1 : -1);
+  if (tick(e, 'spinT', angry ? 0.11 : 0.15)) { const arms = angry ? 4 : 3; for (let k = 0; k < arms; k++) enemyShot(e.x, e.y + 10, e.spin + (k / arms) * TAU, 0.75); }
+  if (tick(e, 'spawnT', angry ? 4.5 : 6.5)) for (let i = 0; i < 3; i++) spawnEnemy('drone', e.x + (i - 1) * 40, e.y + 30, { vy: 95 });
+  if (tick(e, 'shotT', 2.2)) fan(e.x, e.y + 30, aimAt(e), 5, 0.1, 1.1);
+}
+function bossPhagocyte(e, dt) {    // PHAGOCYTE: an immune cell that hunts you, engulfs and bursts
+  if (bossEnter(e, dt)) return;
+  const angry = angryOf(e);
+  e.patT -= dt;
+  if (e.mode === 1) {
+    e.x += (clamp(S.p.x, 60, W - 60) - e.x) * Math.min(1, dt * 0.8);
+    e.y += (e.ty - e.y) * Math.min(1, dt * 2);
+    if (tick(e, 'shotT', angry ? 0.18 : 0.26)) { e.spin += 0.5; enemyShot(e.x, e.y, e.spin, 0.55, { acc: 0.9, vmax: 230 }); }
+    if (e.patT <= 0) { e.mode = 2; e.patT = 1.3; e.dashX = clamp(S.p.x, 50, W - 50); e.dashY = Math.min(S.p.y - 110, H * 0.6); }
+  } else {
+    e.x += (e.dashX - e.x) * Math.min(1, dt * 3.5); e.y += (e.dashY - e.y) * Math.min(1, dt * 3.5);
+    if (e.patT <= 0) { e.mode = 1; e.patT = angry ? 3.2 : 4.6; burst(e.x, e.y, 44, 'SPLURCH!', e.color); ring(e.x, e.y, angry ? 24 : 16, 0.8); }
+  }
+}
+// STAGE 5
+function bossKnight(e, dt) {       // PRISM KNIGHT: sword sweeps leave arcs of glass, then a lunge
+  if (bossEnter(e, dt)) return;
+  const angry = angryOf(e); bossGlide(e, 0.4, 80, 6);
+  if (tick(e, 'patT', angry ? 1.6 : 2.2)) { e.swing = 0.6; e.swDir = e.swDir === 1 ? -1 : 1; }
+  if (e.swing > 0) {
+    e.swing -= dt;
+    if (tick(e, 'spinT', 0.03)) { const a = Math.PI / 2 + e.swDir * (e.swing / 0.6 - 0.5) * 2.4; enemyShot(e.x + Math.cos(a) * 40, e.y + Math.sin(a) * 40, a, 0.75); if (angry) enemyShot(e.x + Math.cos(a) * 40, e.y + Math.sin(a) * 40, a, 1.1); }
+  }
+  if (tick(e, 'shotT', angry ? 1.4 : 2)) fan(e.x, e.y + 20, aimAt(e), 3, 0.06, 1.35);
+}
+function bossChoir(e, dt) {        // HALO CHOIR: three masks sing in turn; all together when hurt
+  if (bossEnter(e, dt)) return;
+  const angry = angryOf(e); bossGlide(e, 0.25, 100, 12);
+  if (tick(e, 'shotT', angry ? 0.45 : 0.6)) {
+    e.volley++;
+    const sing = angry ? [0, 1, 2] : [e.volley % 3];
+    for (const i of sing) {
+      const mx = e.x + (i - 1) * 42, my = e.y + (i === 1 ? -10 : 8);
+      if (i === 1) ring(mx, my, 12, 0.6, e.volley * 0.2); else fan(mx, my, Math.atan2(S.p.y - my, S.p.x - mx), 3, 0.15, 0.95);
+    }
+  }
+  if (tick(e, 'ringT', 4)) ring(e.x, e.y, 30, 0.45, 0, { acc: 0.7, vmax: 200 });
+}
+function bossReflection(e, dt) {   // THE REFLECTION: mirrors your moves and fires your own aim back at you
+  if (bossEnter(e, dt)) return;
+  const angry = angryOf(e);
+  e.x += (clamp(W - S.p.x, 50, W - 50) - e.x) * Math.min(1, dt * 2.5);
+  e.y = e.ty + Math.sin(e.age) * 14;
+  if (tick(e, 'shotT', angry ? 0.5 : 0.75)) { enemyShot(e.x, e.y + 20, aimAt(e), 1.2); enemyShot(W - e.x, e.y + 20, Math.atan2(S.p.y - e.y, S.p.x - (W - e.x)), 1.2, { r: 5 }); }
+  if (tick(e, 'laneT', angry ? 2.2 : 3)) { const gap = W - clamp(S.p.x, 40, W - 40); for (let x = 12; x < W; x += 22) if (Math.abs(x - gap) > 34) enemyShot(x, -6, Math.PI / 2, 0.6); }
+  if (angry && tick(e, 'ringT', 2.5)) ring(e.x, e.y, 16, 0.7, Math.random());
+}
 const BOSS_BRAIN = { brute: bossBrute, mother: bossMother, stalker: bossStalker, queen: bossQueen,
+                     manta: bossManta, oculus: bossOculus, static: bossStatic, nautilus: bossNautilus, siren: bossSiren, gulper: bossGulper,
+                     bladder: bossBladder, parasite: bossParasite, phagocyte: bossPhagocyte, knight: bossKnight, choir: bossChoir, reflection: bossReflection,
                      wyrm: bossWyrm, maw: bossMaw, heart: bossHeart, seraph: bossSeraph };
 
 function enemyShot(x, y, angle, speedMul, extra) {
@@ -1020,6 +1214,7 @@ function aimAt(e) { return Math.atan2(S.p.y - e.y, S.p.x - e.x); }
 
 function updateEnemy(e, dt) {
   const p = S.p;
+  S.dtNow = dt;
   e.age += dt;
   e.flash = Math.max(0, e.flash - dt);
   switch (e.type) {
@@ -1384,7 +1579,7 @@ function choiceInfo(c) {
   if (c.kind === 'ult') {
     const u = ULTS[c.id];
     return { title: u.name, desc: u.desc, glyph: u.glyph, color: TIER.ult.color, icon: COL.paper,
-             tier: 'ULTIMATE', tag: `DOUBLE-TAP · ${ultCooldown(c.id)}s RECHARGE` };
+             tier: 'ULTIMATE', tag: `DOUBLE-TAP · ${ultCooldown(c.id, ultLevelFor(S.level))}s · LEVELS UP EVERY ${CFG.ultLevelEvery} LEVELS` };
   }
   const nW = slotWeapons().length, nP = Object.keys(S.passives).length;
   if (c.kind === 'fill') {
@@ -1430,7 +1625,7 @@ function choose(i) {
     case 'wup':  S.weapons[c.id].lvl++; break;
     case 'pnew': S.passives[c.id] = { lvl: 1 }; break;
     case 'pup':  S.passives[c.id].lvl++; break;
-    case 'ult':  S.ult = { id: c.id, cd: 0 }; S.ultHint = 5; break;
+    case 'ult':  S.ult = { id: c.id, cd: 0, lv: ultLevelFor(S.level) }; S.ultHint = 5; break;
     case 'fill': if (c.id === 'repair') p.hp = Math.min(p.maxHp, p.hp + 1); else S.credits += 15; break;
   }
   const before = p.maxHp;
@@ -1533,7 +1728,9 @@ function gameUpdate(dt) {
     b.x += b.vx * edt;
     b.y += b.vy * edt;
     if (b.wob) { b.age += edt; b.x += Math.cos(b.age * b.wf) * b.wob * edt; }
-    if (b.y < -20 || b.y > H + 20 || b.x < -20 || b.x > W + 20) { b.dead = true; continue; }
+    if (b.grav) b.vy += b.grav * edt;                                            // lobbed shots arc down
+    if (b.acc && b.vx * b.vx + b.vy * b.vy < b.vmax * b.vmax) { const k = 1 + b.acc * edt; b.vx *= k; b.vy *= k; }   // slow, then fast
+    if (b.y < (b.grav ? -200 : -20) || b.y > H + 20 || b.x < -20 || b.x > W + 20) { b.dead = true; continue; }
     const dx = b.x - p.x, dy = b.y - p.y, d2 = dx * dx + dy * dy;
     if (d2 < (CFG.player.hitRadius + b.r * 0.6) ** 2 && p.invuln <= 0) {
       b.dead = true;
@@ -1569,6 +1766,7 @@ function gameUpdate(dt) {
   // --- level up?
   if (S.state === 'play') {
     while (S.xp >= xpNeed(S.level)) { S.xp -= xpNeed(S.level); S.level++; S.pending++; }
+    ultLevelCheck();
     if (S.pending > 0) openLevelUp();
   }
 }
@@ -1630,7 +1828,11 @@ function update(dt) {
   if (S.armed && (S.armed.t -= dt) <= 0) S.armed = null;
   if (typeof uiTick === 'function') uiTick(dt);
   if (S.state === 'cutin') { S.cutin.t += dt; if (S.cutin.t >= S.cutin.dur) finishCutin(); return; }
-  if (S.state === 'play') { gameUpdate(dt); S.intro = Math.max(0, S.intro - dt); }
+  if (S.state === 'play') {
+    let gdt = dt;
+    if (S.impact > 0) { S.impact -= dt; gdt = dt * lerp(1, 0.15, clamp(S.impact / CFG.ultImpact, 0, 1)); }   // ultimate impact frame
+    gameUpdate(gdt); S.intro = Math.max(0, S.intro - dt);
+  }
   else {
     S.uiLock -= dt;
     if (S.state === 'over' || S.state === 'won') { S.shake = Math.max(0, S.shake - dt); updateParticles(dt); }

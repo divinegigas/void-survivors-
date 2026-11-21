@@ -141,7 +141,23 @@ VESPER is free.
 
 Offered at **level 10** as 3 of the 6. Fired with a **double-tap** (two quick taps within 380ms).
 Firing **freezes the game for a 1.8s cut-in**: a strip of the pilot's eyes, the pilot swooping in, the
-move's name slammed in, the pilot's shout and a stinger sound. Then the move fires.
+move's name slammed in, the pilot's shout and a stinger sound. Then the move fires with an **impact**:
+one white frame, a colour flash and three shockwaves in the ultimate's colour, comic speed lines bursting
+from the ship, the ultimate's symbol swelling behind the action, a beat of slow motion (0.35s), and a
+layered sound (sub-bass drop, distorted hit, a power-chord stab in a big hall reverb, a sparkle run and
+a flavour layer per ultimate). While it runs, the screen edge glows in its colour.
+
+**Ultimate levels:** the ultimate levels up every **10 pilot levels** (Lv 20 → ult Lv 2, Lv 30 → Lv 3,
+up to Lv 5), recharging fully with a fanfare. Each level recharges 8% faster and boosts the effect:
+
+| Ultimate | Per level above 1 |
+|---|---|
+| Megaton | +200 damage (and a mushroom cloud) |
+| Overdrive | +2s, cooldowns ×0.03 lower (down to 0.2) |
+| Time Warp | +1.5s |
+| Missile Storm | +10 missiles, +10 damage each |
+| Phase Ram | +1.5s, +40% ram damage |
+| Black Hole | +1s, +25 pull radius, +40% core damage |
 
 | Ultimate | Effect | Recharge |
 |---|---|---|
@@ -205,10 +221,10 @@ stage clear** and on death or quit. A full five-stage run earns about 5,400 cred
 | # | Stage | Look | Mini-bosses (1:45 / 3:30 / 5:15) | Final boss | Music |
 |---|---|---|---|---|---|
 | 1 | **Hive Fleet** | Indigo halftone sky, sparkles, speed lines | Brood Brute · Spore Mother · Scythe Wraith | **Hive Queen** | "Hive Surf": surf rock + 90s shooter metal + a dash of dubstep, 168 BPM |
-| 2 | **Warp Zone** | Black warp tunnel, cyan/magenta streaks | Phase Brute · Flux Mother · Rift Wraith | **Warp Wyrm** | "Warp Rider": speed metal + reverb-drenched electro bass, 186 BPM |
-| 3 | **The Deep** | Teal water, light rays, rising bubbles | Reef Crusher · Siren Sac · Deep Reaper | **Abyssal Maw** | "Abyssal Drift": slow psychedelic rock (organ, phaser, wah), 92 BPM |
-| 4 | **Inside the Leviathan** | Flesh walls, veins, blood cells, heartbeat pulse | Bile Tick · Polyp Mother · Marrow Wraith | **Leviathan Heart** | "Heart of the Beast": doom metal crushed into glitch hop, 100 BPM |
-| 5 | **Prismatic Void** | Rainbow halftone, prism shards | Prism Brute · Halo Mother · Mirror Wraith | **Seraph of the Void** | "Seraph": a slow, majestic intro (72 BPM), then a fast JRPG final battle (160 BPM) |
+| 2 | **Warp Zone** | Black warp tunnel, cyan/magenta streaks | Rift Manta · Flux Oculus · Static Wraith | **Warp Wyrm** | "Warp Rider": speed metal + reverb-drenched electro bass, 186 BPM |
+| 3 | **The Deep** | Teal water, light rays, rising bubbles | Dread Nautilus · Siren Bloom · Gulper King | **Abyssal Maw** | "Abyssal Drift": slow psychedelic rock (organ, phaser, wah), 92 BPM |
+| 4 | **Inside the Leviathan** | Flesh walls, veins, blood cells, heartbeat pulse | Bile Bladder · Parasite King · Phagocyte | **Leviathan Heart** | "Heart of the Beast": doom metal crushed into glitch hop, 100 BPM |
+| 5 | **Prismatic Void** | Rainbow halftone, prism shards | Prism Knight · Halo Choir · The Reflection | **Seraph of the Void** | "Seraph": a slow, majestic intro (72 BPM), then a fast JRPG final battle (160 BPM) |
 
 Each stage has **its own regular enemies** and wave mix. They fill the same four roles as the stage 1 bugs
 (how they move and shoot), each with a twist (`FOE` and `STAGES[n].foes` in game.js):
@@ -242,7 +258,22 @@ Each stage has **its own regular enemies** and wave mix. They fill the same four
 
 ## 11. Bosses
 
-Mini-bosses use the same three brains in every stage (re-skinned and renamed):
+Every stage has **its own three mini-bosses**. Their health is the base (2200 / 3600 / 5200 for the 1st / 2nd /
+3rd) × `bossHpMul 1.0` × `miniBossHpMul 1.25` × (1 + stage − 1). All get angrier below half health.
+
+- **Stage 2:** **Rift Manta** (curtains with a gap, wingtip streams; warps with a ring when hurt) ·
+  **Flux Oculus** (a giant eye; 3 orbiting crystals fire aimed shots, 5 when hurt, plus rings and a twin spiral) ·
+  **Static Wraith** (teleports every 3s and its ghost copies fire too; static rain).
+- **Stage 3:** **Dread Nautilus** (spiral arms, slow ink blobs, calls Jellies) · **Siren Bloom** (rows of swaying
+  bubbles, calls Jellies, slow-then-fast rings when hurt) · **Gulper King** (lunges at you, rings of teeth on landing).
+- **Stage 4:** **Bile Bladder** (swells, then bursts lobbed acid that arcs down plus a slow-then-fast ring) ·
+  **Parasite King** (whipping tail arms of bullets, sheds Flukes) · **Phagocyte** (hunts you with accelerating
+  shots, engulf-lunges and bursts).
+- **Stage 5:** **Prism Knight** (sword sweeps leave arcs of glass, quick aimed thrusts) · **Halo Choir** (three masks
+  sing in turn, all at once when hurt) · **The Reflection** (mirrors your position, fires from both sides, curtains
+  whose gap is your mirror image).
+
+Stage 1's three:
 
 - **Brute** (a tick swollen with eggs): sways side to side and fires an aimed 7-shot fan (9 below
   half health) every 1.4s (1.0). Every 3rd volley adds side sprays; it calls in 3 Larvae every 5s.
