@@ -47,9 +47,10 @@ const THEMES = {
   3: { base: '#062a3c', dotA: '#0e4a5e', dotB: '#0b3a52', amb: 'bubbles' },   // the deep
   4: { base: '#36101a', dotA: '#561828', dotB: '#481020', amb: 'cells' },     // inside the leviathan
   5: { base: '#0b0614', amb: 'shards', rainbow: true },                        // prismatic void
+  6: { base: '#0a0308', dotA: '#3a0a1a', dotB: '#24082e', amb: 'stars' },     // boss rush (then each boss brings its home sky)
 };
 let bgStage = 0, bgT = 0;
-const themeStage = () => (S && S.stage) || META.lastStage || 1;
+const themeStage = () => (S && (S.rushStage || S.stage)) || META.lastStage || 1;
 function buildBackground(stage) {
   const th = THEMES[stage] || THEMES[1];
   bgStage = stage;
@@ -1660,17 +1661,17 @@ function drawHud() {
   ctx.fillStyle = COL.xp; ctx.fillRect(6, 5, (W - 12) * clamp(S.xp / need, 0, 1), 6);
 
   inkText(`LV ${S.level}`, 8, 28, 20, PAPER, 'left');
-  const L = CFG.level.length;
+  const L = stageLen();
   inkText(fmtTime(Math.min(S.t, L)), W / 2, 28, 20, S.queenUp ? COL.red : PAPER);
   // stage progress (top right, under the hearts): 3 mini-boss markers and the final boss at the end
   const pw = 104, px = W - 14 - pw, py = 66;
-  inkText(`STG ${S.stage}`, px - 6, py + 1, 11, COL.dim, 'right', FONT_D, 2.5);
+  inkText(isRush() ? 'RUSH' : `STG ${S.stage}`, px - 6, py + 1, 11, isRush() ? COL.red : COL.dim, 'right', FONT_D, 2.5);
   ctx.fillStyle = INK; ctx.fillRect(px - 2, py - 2, pw + 4, 6);
   ctx.fillStyle = '#3a3366'; ctx.fillRect(px, py, pw, 2);
   ctx.fillStyle = COL.gold; ctx.fillRect(px, py, pw * Math.min(1, S.t / L), 2);
-  for (const t of [...CFG.level.miniBosses, L]) {
+  for (const t of LEVEL_EVENTS().map(ev => ev.t)) {
     const x = px + pw * (t / L), last = t === L, done = S.t >= t;
-    ctx.beginPath(); ctx.arc(x, py + 1, last ? 5 : 3.6, 0, TAU);
+    ctx.beginPath(); ctx.arc(x, py + 1, last ? 5 : isRush() ? 2.2 : 3.6, 0, TAU);
     ctx.fillStyle = done ? COL.red : last ? '#d81b60' : '#6b6590'; ctx.fill();
     ctx.lineWidth = 1.6; ctx.strokeStyle = INK; ctx.stroke();
   }
@@ -1983,7 +1984,7 @@ function drawTab(id, x, y, w, h, label, tab) {
 
 // The ship wheel: the chosen ship up front with its pilot behind; the others ride
 // around a wheel. Swipe or use the arrows. Locked ships and pilots are silhouettes.
-const SHIP_IDS = Object.keys(SHIPS);
+const SHIP_IDS = SHIP_ORDER;          // cheapest first, so the next pilot to reveal sits next to you
 let wheelIdx = -1, wheelPos = 0;
 function wheelSpin(d) {
   const n = SHIP_IDS.length;
@@ -2001,6 +2002,7 @@ function drawShipWheel(top, bottom) {
   if (wheelIdx < 0) { wheelIdx = Math.max(0, SHIP_IDS.indexOf(META.ship)); wheelPos = wheelIdx; }
   const id = SHIP_IDS[wheelIdx], ship = SHIPS[id], P = PILOTS[id], wp = WEAPONS[ship.weapon];
   const owned = !!META.ships[id], sel = META.ship === id, tc = TIER[wp.tier].color, cost = shipCost(id), afford = META.bank >= cost;
+  const known = shipRevealed(id);      // revealed pilots can be bought (and are shown in full); the rest stay a mystery
   const avail = bottom - top, wheelH = avail * 0.5;
 
   // backdrop slab in the ship's tier colour, pilot behind
@@ -2008,9 +2010,9 @@ function drawShipWheel(top, bottom) {
   const pk = easeOutBack(clamp(UIM.wheelT / 0.32, 0, 1));
   const ph = wheelH * 1.02;
   ctx.save(); path([0, top + 8, W, top + wheelH * 0.05, W, top + wheelH * 0.9, 0, top + wheelH]); ctx.clip();
-  drawPilot(id, 'normal', W / 2 - ph * 0.42 - 34 + (1 - pk) * 50, top + wheelH - ph + 4, ph, !owned, 0.35 + 0.65 * pk);
+  drawPilot(id, 'normal', W / 2 - ph * 0.42 - 34 + (1 - pk) * 50, top + wheelH - ph + 4, ph, !known, 0.35 + 0.65 * pk);
   ctx.restore();
-  if (!owned) inkText('?', W / 2 - 34, top + wheelH * 0.45, 70, '#6b6590', 'center', FONT_D, 6);
+  if (!known) inkText('?', W / 2 - 34, top + wheelH * 0.45, 70, '#6b6590', 'center', FONT_D, 6);
 
   // ships around the wheel (far ones first)
   const cy = top + wheelH * 0.8, base = Math.round(wheelPos), list = [];
@@ -2027,6 +2029,7 @@ function drawShipWheel(top, bottom) {
     drawShip(x, y + Math.sin(performance.now() / 500 + i) * 2, sc, SHIPS[sid], !META.ships[sid]);
     ctx.globalAlpha = 1;
   }
+  if (known && !owned) slamTitle('FOR HIRE!', W - 80, top + wheelH * 0.3, 24, COL.gold, COL.red, 0.12);
   drawButton('wl', 8, cy - 26, 40, 50, '<', '#5a5480', () => wheelSpin(-1));
   drawButton('wr', W - 48, cy - 26, 40, 50, '>', '#5a5480', () => wheelSpin(1));
 
@@ -2035,13 +2038,13 @@ function drawShipWheel(top, bottom) {
   const ie = easeOutBack(clamp(UIM.wheelT / 0.3, 0, 1));
   ctx.save(); ctx.translate((1 - ie) * 40, 0);
   slant(10, iy, W - 20, ih, PAPER, 5, 12);
-  inkText(ship.name, 30, iy + 20, 26, owned ? ship.color : '#6b6590', 'left', FONT_D, 4);
+  inkText(known ? ship.name : '???', 30, iy + 20, 26, owned ? ship.color : '#6b6590', 'left', FONT_D, 4);
   ctx.font = `12px ${FONT_D}`;
   const tier = TIER[wp.tier].name, pw = ctx.measureText(tier).width + 12;
   roundRect(W - 30 - pw, iy + 11, pw, 18, 9); ctx.fillStyle = tc; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = INK; ctx.stroke();
   plainText(tier, W - 30 - pw / 2, iy + 21, 12, INK);
-  plainText(owned ? `PILOT: ${P.name}` : 'PILOT: ???', 30, iy + 42, 14, '#4a4470', 'left');
-  plainText(owned ? `"${P.quote}"` : 'Unlock this ship to meet the pilot.', 30, iy + 58, 11, '#4a4470', 'left', FONT_B);
+  plainText(known ? `PILOT: ${P.name}` : 'PILOT: ???', 30, iy + 42, 14, '#4a4470', 'left');
+  plainText(known ? `"${P.quote}"` : 'Finish a run to reveal the next pilot.', 30, iy + 58, 11, '#4a4470', 'left', FONT_B);
   plainText(`${wp.name.toUpperCase()} · ${ship.role.toUpperCase()}`, 30, iy + 76, 13, INK, 'left');
   // stats
   const lv = META.shipLv[id] || {}, rows = [['HULL', 'hull'], ['POWER', 'dmg'], ['FIRE RATE', 'rate'], ['PICKUP', 'magnet'], ['HANDLING', 'handling']];
@@ -2066,7 +2069,8 @@ function drawShipWheel(top, bottom) {
   const ay = bottom - 54;
   if (owned) drawButton('wsel', 40, ay, W - 80, 46, sel ? 'FLYING THIS ONE!' : 'SELECT', sel ? '#5a8a4a' : COL.xp,
                         () => { if (!sel) { META.ship = id; saveMeta(); S.shipId = id; S.ship = ship; buzz(20); } }, !sel);
-  else if (!afford) drawButton('wbuy', 40, ay, W - 80, 46, `NEED ${cost} CR`, '#5a5480', () => {}, false);
+  else if (!known) drawButton('wbuy', 40, ay, W - 80, 46, 'FINISH A RUN TO REVEAL', '#5a5480', () => {}, false);
+  else if (!afford) drawButton('wbuy', 40, ay, W - 80, 46, `NEED ${cost} CR · YOU HAVE ${META.bank}`, '#5a5480', () => {}, false);
   else drawButton('wbuy', 40, ay, W - 80, 46, isArmed(id) ? 'TAP AGAIN TO UNLOCK' : `UNLOCK · ${cost} CR`, isArmed(id) && blinkOn() ? COL.red : '#ff8c1a',
                   () => confirmBuy(id, () => {
                     META.bank -= cost; META.ships[id] = true; META.ship = id; saveMeta();
@@ -2132,11 +2136,16 @@ function drawGameOver() {
   const e = easeOut(clamp(UIM.t / 0.35, 0, 1));
   const ph = H * 0.26;
   drawPilot(S.shipId, won ? 'normal' : 'crit', W - ph * 0.83 + 6 + (1 - e) * W, cy + 40, ph);
-  const finale = won && S.stage === STAGE_COUNT;
-  slamTitle(finale ? 'YOU WIN!' : won ? 'STAGE CLEAR!' : S.quit ? 'RUN ENDED' : 'SHIP LOST!', W / 2, cy, 46, won ? COL.xp : S.quit ? COL.player : COL.red, COL.gold);
-  if (won) inkText(finale ? 'THE VOID IS SILENT. YOU SURVIVED.' : `${ENEMY[stageDef().final].name} DESTROYED!`, W / 2, cy + 40, 15, PAPER);
-  if (won && !finale) inkText(`Your loadout carries on · +1 weapon and +1 support slot`, W / 2, H * 0.74 - 16, 11, COL.dim, 'center', FONT_B, 3);
-  const rows = [['STAGE', `${S.stage} / ${STAGE_COUNT}`], ['RUN TIME', fmtTime(S.runT)], ['LEVEL', String(S.level)], ['KILLS', String(S.kills)], ['BEST', fmtTime(META.best)]];
+  const finale = won && S.stage === STAGE_COUNT, rush = isRush();
+  slamTitle(rush && won ? 'LEGEND!' : finale ? 'YOU WIN!' : won ? 'STAGE CLEAR!' : S.quit ? 'RUN ENDED' : 'SHIP LOST!', W / 2, cy, 46, won ? COL.xp : S.quit ? COL.player : COL.red, COL.gold);
+  if (won) inkText(rush ? 'EVERY HORROR, BEATEN AGAIN.' : finale ? 'THE VOID IS SILENT. YOU SURVIVED.' : `${ENEMY[stageDef().final].name} DESTROYED!`, W / 2, cy + 40, 15, PAPER);
+  if (won && !finale && !rush) inkText(`Your loadout carries on · +1 weapon and +1 support slot`, W / 2, H * 0.74 - 16, 11, COL.dim, 'center', FONT_B, 3);
+  if (S.secretOpen) inkText(S.secretFound ? 'FLAWLESS! A SECRET STAGE HAS OPENED...' : 'THE SECRET STAGE AWAITS...', W / 2, H * 0.74 - 16, 13, blinkOn() ? COL.gold : COL.red, 'center', FONT_D, 3);
+  if (S.newPilot) {
+    const np = PILOTS[S.newPilot];
+    inkText(`NEW PILOT AVAILABLE: ${np.name.toUpperCase()}`, W / 2, H * 0.74 - ((won && !finale && !rush) || S.secretOpen ? 34 : 16), 13, blinkOn() ? COL.gold : PAPER, 'center', FONT_D, 3);
+  }
+  const rows = [['STAGE', rush ? 'SECRET' : `${S.stage} / ${STAGE_COUNT}`], ['RUN TIME', fmtTime(S.runT)], ['LEVEL', String(S.level)], ['KILLS', String(S.kills)], ['BEST', fmtTime(META.best)]];
   const py = cy + 62;
   ctx.save(); ctx.translate(-(1 - e) * W, 0);
   slant(24, py, W * 0.6, 22 + rows.length * 24, PAPER, 5, 12);
@@ -2157,7 +2166,10 @@ function drawGameOver() {
   inkText(`BOUNTY BANKED · ${META.bank} CR TOTAL`, W / 2, cyy + 52, 13, PAPER, 'center', FONT_D, 3);
   if (S.newBest) inkText('NEW BEST TIME!', W / 2, cyy + 72, 16, COL.xp);
   const by = H * 0.74, on = S.uiLock <= 0;
-  if (won && S.stage < STAGE_COUNT) {
+  if (won && S.secretOpen) {
+    drawButton('again', 40, by, W - 80, 54, 'SECRET STAGE: BOSS RUSH!', COL.red, nextStage, on);
+    drawButton('hangar', 40, by + 68, W - 80, 46, 'END RUN · HANGAR', '#ff8c1a', openHangar, on);
+  } else if (won && S.stage < STAGE_COUNT) {
     drawButton('again', 40, by, W - 80, 54, `ONWARD: STAGE ${S.stage + 1}!`, COL.xp, nextStage, on);
     drawButton('hangar', 40, by + 68, W - 80, 46, 'END RUN · HANGAR', '#ff8c1a', openHangar, on);
   } else {
@@ -2169,10 +2181,10 @@ function drawGameOver() {
 // --- Stage select ----------------------------------------------------------------
 function drawStages() {
   slamTitle('SELECT STAGE', W / 2, 40, 32, COL.gold, COL.red);
-  const top = 82, bottom = H - 78, n = STAGE_COUNT, gap = 9, ph = (bottom - top - gap * (n - 1)) / n;
+  const top = 82, bottom = H - 78, n = maxStage(), gap = n > 5 ? 7 : 9, ph = (bottom - top - gap * (n - 1)) / n;
   for (let i = 1; i <= n; i++) {
     const st = STAGES[i], th = THEMES[i], y = top + (i - 1) * (ph + gap);
-    const open = i <= (META.unlocked || 1), done = META.cleared && META.cleared[i], sel = i === (META.lastStage || 1);
+    const open = i <= (META.unlocked || 1) || (i === SECRET_STAGE && META.secret), done = META.cleared && META.cleared[i], sel = i === (META.lastStage || 1);
     const pressed = S.uiPress === 'st' + i && open, d = pressed ? 3 : 0, e = enterK(i - 1, 0.05);
     ctx.save(); ctx.translate((1 - e) * W * (i % 2 ? 1 : -1) + d, d);
     slant(12, y, W - 24, ph, open ? PAPER : '#2a2440', pressed ? 0 : 5, 14);
@@ -2182,12 +2194,12 @@ function drawStages() {
     else { ctx.fillStyle = th.base; ctx.fillRect(12, y, 90, ph); ctx.fillStyle = th.dotA; ctx.globalAlpha = 0.9; for (let k = 0; k < 9; k++) { ctx.beginPath(); ctx.arc(20 + (k % 3) * 26, y + 12 + Math.floor(k / 3) * ph / 3, 6, 0, TAU); ctx.fill(); } ctx.globalAlpha = 1; }
     ctx.restore();
     path([12 + 14, y, 96, y, 96 - 14, y + ph, 12, y + ph]); ctx.lineWidth = 2.4; ctx.strokeStyle = INK; ctx.stroke();
-    inkText(String(i).padStart(2, '0'), 55, y + ph / 2 + 2, 38, open ? COL.gold : '#5a5480', 'center', FONT_D, 6);
+    inkText(i === SECRET_STAGE ? '??' : String(i).padStart(2, '0'), 55, y + ph / 2 + 2, 38, open ? COL.gold : '#5a5480', 'center', FONT_D, 6);
     const tx = 104;
     plainText(open ? st.name : '???', tx, y + ph * 0.3, 20, open ? INK : '#6b6590', 'left');
     plainText(open ? st.sub : `Clear stage ${i - 1} to unlock`, tx, y + ph * 0.54, 11, open ? '#4a4470' : '#6b6590', 'left', FONT_B);
-    if (open) plainText(i === 1 ? `FULL RUN: all 5 stages, loadout carries on` : `HEAD START: ${CFG.headStart * (i - 1)} LEVEL-UPS · SLOTS ${st.slots[0]}+${st.slots[1]}`, tx, y + ph * 0.78, 11.5, '#4a4470', 'left');
-    const tag = !open ? 'LOCKED' : done ? 'CLEARED' : 'NEW';
+    if (open) plainText(i === 1 ? `FULL RUN: all 5 stages, loadout carries on` : i === SECRET_STAGE ? `20 BOSSES · HEAD START: ${CFG.headStart * 5} LEVEL-UPS` : `HEAD START: ${CFG.headStart * (i - 1)} LEVEL-UPS · SLOTS ${st.slots[0]}+${st.slots[1]}`, tx, y + ph * 0.78, 11.5, '#4a4470', 'left');
+    const tag = !open ? 'LOCKED' : done ? 'CLEARED' : i === SECRET_STAGE ? 'SECRET' : 'NEW';
     ctx.font = `12px ${FONT_D}`;
     const pw = ctx.measureText(tag).width + 12;
     roundRect(W - 30 - pw, y + 8, pw, 18, 9); ctx.fillStyle = !open ? '#5a5480' : done ? COL.xp : COL.gold; ctx.fill(); ctx.lineWidth = 1.8; ctx.strokeStyle = INK; ctx.stroke();
@@ -2211,7 +2223,7 @@ function drawStageIntro() {
   slant(-20, y - 44, W + 40, 92, INK, 0, 22);
   slant(-10, y - 36, W + 20, 76, COL.red, 0, 18);
   if (dotPattern) { ctx.save(); path([8, y - 36, W + 10, y - 36, W - 8, y + 40, -10, y + 40]); ctx.clip(); ctx.globalAlpha = 0.25; ctx.fillStyle = dotPattern; ctx.fillRect(0, y - 40, W, 84); ctx.restore(); }
-  inkText(`STAGE ${S.stage}`, 24, y - 14, 22, COL.gold, 'left', FONT_D, 4);
+  inkText(isRush() ? 'SECRET STAGE' : `STAGE ${S.stage}`, 24, y - 14, 22, COL.gold, 'left', FONT_D, 4);
   inkText(st.name, W / 2, y + 12, st.name.length > 14 ? 30 : 40, PAPER, 'center', FONT_D, 6);
   ctx.restore();
   ctx.globalAlpha = inK * (1 - out);

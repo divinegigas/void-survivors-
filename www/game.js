@@ -78,6 +78,11 @@ const CFG = {
     fire: 0.15,               // enemies fire 15% more often per stage
     credits: 0,               // extra bounty per stage (0: later stages already have far more to kill)
   },
+  rush: {                     // the secret Boss Rush stage
+    first: 12,                // first boss arrives at 0:12
+    gap: 60,                  // then one every minute, whether or not the last one is dead
+    swarmMul: 1.6,            // longer gaps between regular enemy waves
+  },
   level: {
     length: 420,              // 7:00: the clock stops and the final boss arrives
     miniBosses: [105, 210, 315],  // mini-bosses at 1:45, 3:30 and 5:15
@@ -142,6 +147,7 @@ function loadMeta() {
   m.ships = m.ships || { vesper: true };
   m.shipLv = m.shipLv || {};       // Hangar upgrade levels, per ship
   m.unlocked = m.unlocked || (m.clears ? 2 : 1);   // highest stage you can pick
+  m.secret = !!m.secret;                            // the secret Boss Rush (beat stage 5 at full health)
   if (m.lv.shield) {          // the old cheap "Launch Shield" is gone: refund what was spent on it
     for (let k = 0; k < m.lv.shield; k++) m.bank += Math.round(40 * Math.pow(1.8, k));
     delete m.lv.shield;
@@ -667,6 +673,21 @@ const SHIPS = {
 const shipTier = id => WEAPONS[SHIPS[id].weapon].tier;
 const shipCost = id => (id === 'vesper' ? 0 : CFG.shipCost[shipTier(id)]);
 const curShip = () => SHIPS[META.ship] || SHIPS.vesper;
+// Pilots are revealed one at a time, cheapest first: after each run the next one can be bought.
+const SHIP_ORDER = Object.keys(SHIPS).map((id, i) => [id, i]).sort((a, b) => shipCost(a[0]) - shipCost(b[0]) || a[1] - b[1]).map(a => a[0]);
+if (META.revealed === undefined) {            // older saves: everything you own, plus the next one
+  let last = 0; SHIP_ORDER.forEach((id, i) => { if (META.ships[id]) last = i; });
+  const fresh = !META.best && !META.clears && !META.bank;
+  META.revealed = fresh ? 1 : Math.min(SHIP_ORDER.length, last + 2); saveMeta();
+}
+const shipRevealed = id => !!META.ships[id] || SHIP_ORDER.indexOf(id) < META.revealed;
+function revealPilot() {                      // once per run, when it ends (death, quitting, or clearing a stage)
+  if (S.revealDone) return; S.revealDone = true;
+  if (S.runT < 30 && !S.won) return;          // a run has to be a real attempt
+  while (META.revealed < SHIP_ORDER.length && META.ships[SHIP_ORDER[META.revealed]]) META.revealed++;
+  if (META.revealed >= SHIP_ORDER.length) return;
+  S.newPilot = SHIP_ORDER[META.revealed]; META.revealed++;
+}
 
 // All modifiers in one place: hangar upgrades + passives.
 function recalcMods() {
@@ -712,8 +733,8 @@ function newGame(state, stage) {
     spawnT: CFG.spawn.graceTime, ev: 0, warned: false, warn: 0, warnName: '', queenUp: false, victoryT: 0,
     pending: 0, choices: null, choiceLevel: 0, uiLock: 0, uiPress: null, flash: null,
     rerolls: ML('reroll'), revives: ML('revive'),
-    stage: clamp(stage || META.lastStage || 1, 1, STAGE_COUNT), intro: 0, fireMul: 1,
-    runT: 0, banked: 0, startStage: clamp(stage || 1, 1, STAGE_COUNT),
+    stage: clamp(stage || META.lastStage || 1, 1, maxStage()), intro: 0, fireMul: 1,
+    runT: 0, banked: 0, startStage: clamp(stage || 1, 1, maxStage()),
   };
   S.fireMul = 1 + CFG.stageScale.fire * stageD();
   recalcMods();
@@ -749,10 +770,21 @@ const STAGES = [null,
   { name: 'PRISMATIC VOID', sub: 'Beyond reality. Something divine and wrong.', music: 'level5', final: 'seraph', slots: [6, 6],
     minis: ['knight', 'choir', 'reflection'],
     foes: { drone: 'shard', weaver: 'halo', diver: 'mirror', gunner: 'cherub' }, waves: { single: 3, line: 3, snake: 3, divers: 3, gunner: 2 } },
+  { name: 'BOSS RUSH', sub: 'Every horror you ever killed. One minute apart.', music: 'level1', final: 'seraph', slots: [6, 6], rush: true,
+    minis: [], foes: { drone: ['drone', 'blinker', 'jelly', 'fluke', 'shard'], weaver: ['weaver', 'phaseel', 'eel', 'tapeworm', 'halo'],
+                       diver: ['diver', 'streak', 'piranha', 'leech', 'mirror'], gunner: ['gunner', 'prism', 'urchin', 'polyp', 'cherub'] },
+    waves: { single: 3, line: 3, snake: 3, divers: 3, gunner: 1.5 } },
 ];
-const STAGE_COUNT = STAGES.length - 1;
+const STAGE_COUNT = 5;                         // the campaign; STAGES[6] is the secret Boss Rush
+const SECRET_STAGE = 6;
+const maxStage = () => (META.secret ? SECRET_STAGE : STAGE_COUNT);
+const isRush = () => !!(S && stageDef().rush);
+// Boss Rush: every mini-boss and final boss in campaign order, one minute apart
+const RUSH = [];
+for (let i = 1; i <= STAGE_COUNT; i++) { for (const m of STAGES[i].minis) RUSH.push({ type: m, stage: i }); RUSH.push({ type: STAGES[i].final, stage: i }); }
+const stageLen = () => (isRush() ? CFG.rush.first + (RUSH.length - 1) * CFG.rush.gap : CFG.level.length);
 const stageDef = () => STAGES[(S && S.stage) || 1];
-const stageD = () => ((S && S.stage) || 1) - 1;                 // 0 on stage 1 ... 4 on stage 5
+const stageD = () => Math.min(STAGE_COUNT, (S && S.stage) || 1) - 1;   // 0 on stage 1 ... 4 on stage 5 (and the Boss Rush)
 const slotCount = () => { const sl = stageDef().slots; return { weapons: sl[0], passives: sl[1] }; };
 
 // The enemies. r = hit size. Bosses don't leave the screen.
@@ -809,10 +841,9 @@ const FOE = {
 };
 const BLOOD = { P: '#9b3fd6', G: '#c4cf1f' };      // purple ichor and acid-yellow-green bile (kept away from the gem mint)
 const bloodOf = e => { const b = e.blood || ENEMY[e.type].blood || 'G'; return BLOOD[b.length > 1 ? pick(b.split('')) : b]; };
-const LEVEL_EVENTS = () => [
-  ...CFG.level.miniBosses.map((t, i) => ({ t, type: stageDef().minis[i] })),
-  { t: CFG.level.length, type: stageDef().final },
-];
+const LEVEL_EVENTS = () => isRush()
+  ? RUSH.map((r, i) => ({ t: CFG.rush.first + i * CFG.rush.gap, type: r.type, stage: r.stage, last: i === RUSH.length - 1 }))
+  : [...CFG.level.miniBosses.map((t, i) => ({ t, type: stageDef().minis[i] })), { t: CFG.level.length, type: stageDef().final, last: true }];
 const enemyName = type => ENEMY[type].name;
 
 // How much stronger your guns are than a fresh ship's (Hangar Power/Fire rate + passives).
@@ -826,9 +857,10 @@ function spawnEnemy(type, x, y, extra) {
   const hp = bossK * (d.final ? d.hp * CFG.bossHpMul * (1 + sc.finalHp * k)       // bosses have fixed health per stage
            : d.boss ? d.hp * CFG.bossHpMul * CFG.miniBossHpMul * (1 + sc.bossHp * k)
            : d.hp * (1 + CFG.enemyHpGrowthPerMin * (1 + sc.hpGrowth * k) * S.t / 60) * (1 + sc.enemyHp * k));
-  const foe = !d.boss && FOE[(st.foes || {})[type] || type], color = foe ? foe.color : d.color;
+  const fk = (st.foes || {})[type] || type, look = Array.isArray(fk) ? pick(fk) : fk;
+  const foe = !d.boss && FOE[look], color = foe ? foe.color : d.color;
   const e = Object.assign({ type, x, y, hp, maxHp: hp, r: d.final ? d.r * CFG.finalBossSize : d.r,
-                            look: foe ? st.foes[type] : type, blood: foe ? foe.blood : d.blood, xp: d.xp, credits: d.credits * (1 + sc.credits * k), color, boss: !!d.boss, final: !!d.final,
+                            look: foe ? look : type, blood: foe ? foe.blood : d.blood, xp: d.xp, credits: d.credits * (1 + sc.credits * k), color, boss: !!d.boss, final: !!d.final && (!st.rush || !!(extra && extra.last)),
                             name: foe ? foe.name : d.name,
                             age: 0, flash: 0, mode: 0, fireT: rand(0.8, 2.0), vx: 0, vy: 0 }, extra);
   S.enemies.push(e);
@@ -875,10 +907,10 @@ function spawnPattern() {
   }
 }
 
-function spawnBoss(type) {
+function spawnBoss(type, last) {
   spawnEnemy(type, W / 2, -ENEMY[type].r * (ENEMY[type].final ? CFG.finalBossSize : 1) - 20, { ty: ENEMY[type].final ? 170 : 125, sway: 0, spin: 0, shotT: 1.5,
     spinT: 0.6, ringT: 2.5, spawnT: 3, patT: 4, phase: 1, volley: 0, ring: 0, beatT: 1, beat: 0, warpT: 6, blink: 0,
-    laneT: 2, segT: 1.6, lureT: 5, lure: 0, jawT: 4, jaw: 0, featherT: 1, rainT: 0, trail: [] });
+    laneT: 2, segT: 1.6, lureT: 5, lure: 0, jawT: 4, jaw: 0, featherT: 1, rainT: 0, trail: [], last: !!last });
 }
 
 // --- Boss brains. All enter from the top first (mode 0).
@@ -1261,7 +1293,7 @@ const BOSS_BRAIN = { brute: bossBrute, mother: bossMother, stalker: bossStalker,
                      wyrm: bossWyrm, maw: bossMaw, heart: bossHeart, seraph: bossSeraph };
 
 function enemyShot(x, y, angle, speedMul, extra) {
-  const sp = CFG.enemyBulletSpeed * Math.min(CFG.enemyBulletSpeedMax, 1 + S.t / CFG.level.length) * (1 + CFG.stageScale.bulletSpeed * stageD()) * (speedMul || 1);
+  const sp = CFG.enemyBulletSpeed * Math.min(CFG.enemyBulletSpeedMax, 1 + S.t / stageLen()) * (1 + CFG.stageScale.bulletSpeed * stageD()) * (speedMul || 1);
   const b = { x, y, vx: Math.cos(angle) * sp, vy: Math.sin(angle) * sp, r: 4 };
   S.ebullets.push(extra ? Object.assign(b, extra, { age: 0 }) : b);
 }
@@ -1552,6 +1584,9 @@ function levelComplete() {
   META.cleared = META.cleared || {};
   META.cleared[S.stage] = true;
   if (S.stage === STAGE_COUNT) META.beatGame = true;
+  if (S.stage === STAGE_COUNT && S.p.hp >= S.p.maxHp && !META.secret) { META.secret = true; S.secretFound = true; }   // flawless finale
+  if (S.stage === STAGE_COUNT && META.secret) S.secretOpen = true;
+  revealPilot();
   saveMeta();
 }
 
@@ -1566,19 +1601,21 @@ function gameOver(quit) {
   S.earned = bankCredits();
   S.newBest = S.runT > META.best;
   if (S.newBest) META.best = S.runT;
+  revealPilot();
   saveMeta();
 }
 
 // Carry the whole run into the next stage: loadout, levels, pilot level and ultimate all stay.
 // You're healed, your ultimate is recharged, and you get one more slot of each kind.
 function nextStage() {
-  if (S.stage >= STAGE_COUNT) return;
+  if (S.stage >= STAGE_COUNT && !(S.stage === STAGE_COUNT && META.secret)) return;
   S.stage++;
   Object.assign(S, {
     state: 'play', won: false, t: 0, ev: 0, warned: false, warn: 0, queenUp: false, victoryT: 0,
     spawnT: CFG.spawn.graceTime, intro: 3.2, uiLock: 0, choices: null, shake: 0,
     bullets: [], ebullets: [], enemies: [], orbs: [], parts: [], novas: [], zaps: [], texts: [], bursts: [], gibs: [], splats: [],
-    laser: null, hole: null, barrage: null, overdrive: 0, warp: 0, phase: 0, whiteout: 0,
+    laser: null, holes: null, barrage: null, overdrive: 0, warp: 0, phase: 0, whiteout: 0, rushStage: 0, encore: 0, fallout: 0,
+    secretFound: false, secretOpen: false,
   });
   S.fireMul = 1 + CFG.stageScale.fire * stageD();
   recalcMods();
@@ -1754,14 +1791,18 @@ function gameUpdate(dt) {
     if (!S.warned && S.t >= ev.t - CFG.level.warnTime) {
       S.warn = CFG.level.warnTime; S.warned = true; S.warnName = enemyName(ev.type); buzz([60, 60, 60]); snd('warning');
     }
-    if (S.t >= ev.t) { spawnBoss(ev.type); S.ev++; S.warned = false; if (ENEMY[ev.type].final) S.queenUp = true; }
+    if (S.t >= ev.t) {
+      spawnBoss(ev.type, ev.last); S.ev++; S.warned = false;
+      if (ev.last) S.queenUp = true;
+      if (isRush() && ev.stage !== S.rushStage) { S.rushStage = ev.stage; music('start', STAGES[ev.stage].music); }   // its home stage's music and sky
+    }
   }
   if (S.victoryT > 0 && (S.victoryT -= dt) <= 0) { levelComplete(); return; }
   // --- the swarm (stops once the Queen arrives: she brings her own)
   if (!S.queenUp && (S.spawnT -= dt) <= 0) {
     const k = clamp(S.t / CFG.spawn.rampSeconds, 0, 1);
     S.spawnT = lerp(CFG.spawn.startInterval, CFG.spawn.minInterval, k) * rand(0.7, 1.3) * (bossAlive() ? CFG.spawn.duringBossMul : 1)
-             * (1 - CFG.stageScale.spawn * stageD());
+             * (1 - CFG.stageScale.spawn * stageD()) * (isRush() ? CFG.rush.swarmMul : 1);
     spawnPattern();
   }
 
@@ -1925,7 +1966,7 @@ function openStages() { newGame('stages'); S.uiLock = 0.15; }
 function resume() { S.state = 'play'; input.dx = input.dy = 0; }
 
 function startGame(stage) {
-  stage = clamp(stage || META.lastStage || 1, 1, Math.min(STAGE_COUNT, META.unlocked || 1));
+  stage = stage === SECRET_STAGE && META.secret ? SECRET_STAGE : clamp(stage || META.lastStage || 1, 1, Math.min(STAGE_COUNT, META.unlocked || 1));
   META.lastStage = stage; saveMeta();
   newGame('play', stage);
   S.intro = 3.2;
@@ -1999,7 +2040,7 @@ window.addEventListener('keydown', e => {
   }
   if ((k === 'enter' || k === ' ') && (S.state === 'title' || S.state === 'hangar')) openStages();
   else if ((k === 'enter' || k === ' ') && S.state === 'stages') startGame(S.stage);
-  else if ((k === 'enter' || k === ' ') && S.state === 'won' && S.uiLock <= 0 && S.stage < STAGE_COUNT) nextStage();
+  else if ((k === 'enter' || k === ' ') && S.state === 'won' && S.uiLock <= 0 && (S.stage < STAGE_COUNT || S.secretOpen)) nextStage();
   else if ((k === 'enter' || k === ' ') && (S.state === 'over' || S.state === 'won') && S.uiLock <= 0) openStages();
   if (k === 'h' && (S.state === 'title' || ((S.state === 'over' || S.state === 'won') && S.uiLock <= 0))) openHangar();
 });

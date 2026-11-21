@@ -255,6 +255,17 @@ Each stage has **its own regular enemies** and wave mix. They fill the same four
 
 ---
 
+**Pilot reveals:** pilots are revealed one at a time, cheapest ship first (Vesper, Trident, Hornet, Bulwark, Halo,
+Tide, Hive, Lance, Corona, Tempest, Needle, Pulsar). Each run that ends (death, quitting after 30s+, or clearing a
+stage) reveals the next one, and the results screen says "NEW PILOT AVAILABLE". Revealed pilots show in full colour
+with a "FOR HIRE!" tag and can be bought once you have the credits. Unrevealed ones stay "???".
+
+**Secret stage: Boss Rush.** Beat stage 5 **at full health** to unlock it. The win screen then offers "SECRET STAGE:
+BOSS RUSH!" (continuing the run), and it appears as stage "??" on stage select (head start: 40 level-ups). All 20
+bosses in campaign order (each stage's 3 mini-bosses, then its final boss), the first at 0:12 and then **one every
+minute whether or not the last is dead**. Each boss brings its home stage's music and sky. The swarm is a mix of every
+stage's enemies with 1.6× longer gaps. Difficulty is stage 5's. Killing the Seraph (the 20th) wins: "LEGEND!".
+
 ## 10. Enemies (the hive fleet: legless horror bugs)
 
 | Enemy | HP | Behaviour |
