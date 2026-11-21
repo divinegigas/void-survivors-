@@ -682,9 +682,9 @@ if (META.revealed === undefined) {            // older saves: everything you own
   META.revealed = fresh ? 1 : Math.min(SHIP_ORDER.length, last + 2); saveMeta();
 }
 const shipRevealed = id => !!META.ships[id] || SHIP_ORDER.indexOf(id) < META.revealed;
-function revealPilot() {                      // once per run, when it ends (death, quitting, or clearing a stage): one more ship in the Hangar
+function revealPilot() {                      // once per run, when it ends, if you beat at least one boss: one more ship in the Hangar
   if (S.revealDone) return; S.revealDone = true;
-  if (S.runT < 30 && !S.won) return;          // a run has to be a real attempt
+  if (!(S.bossKills > 0)) return;              // you have to beat at least the run's first boss to earn a ship
   while (META.revealed < SHIP_ORDER.length && META.ships[SHIP_ORDER[META.revealed]]) META.revealed++;
   if (META.revealed >= SHIP_ORDER.length) return;
   S.newPilot = SHIP_ORDER[META.revealed]; META.revealed++;
@@ -1452,6 +1452,7 @@ function killEnemy(e) {
   e.dead = true;
   S.kills++;
   const big = e.boss;
+  if (big) S.bossKills = (S.bossKills || 0) + 1;
   comicKill(e, big);
   snd(big ? 'bossDie' : 'kill', e.r);
   sparks(e.x, e.y, e.color, big ? 80 : e.type === 'gunner' ? 30 : 14);

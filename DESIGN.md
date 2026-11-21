@@ -255,8 +255,8 @@ Each stage has **its own regular enemies** and wave mix. They fill the same four
 
 ---
 
-**The Hangar grows:** the first time you play, the Hangar holds only Vesper. Each run that ends (death, quitting
-after 30s+, or clearing a stage) unlocks the next ship, cheapest first (Vesper, Trident, Hornet, Bulwark, Halo,
+**The Hangar grows:** the first time you play, the Hangar holds only Vesper. Each run that ends (death, quitting or clearing a stage)
+**after beating at least one boss** unlocks the next ship, cheapest first (Vesper, Trident, Hornet, Bulwark, Halo,
 Tide, Hive, Lance, Corona, Tempest, Needle, Pulsar). The results screen says "NEW SHIP UNLOCKED: X · SEE THE
 HANGAR!", and the ship joins the wheel tagged NEW!, still a silhouette (ship and pilot, "PILOT: ???") until you buy
 it with credits. Ships you haven't unlocked aren't in the wheel at all.
