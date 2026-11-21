@@ -673,7 +673,8 @@ const SHIPS = {
 const shipTier = id => WEAPONS[SHIPS[id].weapon].tier;
 const shipCost = id => (id === 'vesper' ? 0 : CFG.shipCost[shipTier(id)]);
 const curShip = () => SHIPS[META.ship] || SHIPS.vesper;
-// Pilots are revealed one at a time, cheapest first: after each run the next one can be bought.
+// The Hangar grows one ship at a time, cheapest first: each run you finish unlocks the next one,
+// which stays a silhouette (ship and pilot) until you buy it with credits.
 const SHIP_ORDER = Object.keys(SHIPS).map((id, i) => [id, i]).sort((a, b) => shipCost(a[0]) - shipCost(b[0]) || a[1] - b[1]).map(a => a[0]);
 if (META.revealed === undefined) {            // older saves: everything you own, plus the next one
   let last = 0; SHIP_ORDER.forEach((id, i) => { if (META.ships[id]) last = i; });
@@ -681,7 +682,7 @@ if (META.revealed === undefined) {            // older saves: everything you own
   META.revealed = fresh ? 1 : Math.min(SHIP_ORDER.length, last + 2); saveMeta();
 }
 const shipRevealed = id => !!META.ships[id] || SHIP_ORDER.indexOf(id) < META.revealed;
-function revealPilot() {                      // once per run, when it ends (death, quitting, or clearing a stage)
+function revealPilot() {                      // once per run, when it ends (death, quitting, or clearing a stage): one more ship in the Hangar
   if (S.revealDone) return; S.revealDone = true;
   if (S.runT < 30 && !S.won) return;          // a run has to be a real attempt
   while (META.revealed < SHIP_ORDER.length && META.ships[SHIP_ORDER[META.revealed]]) META.revealed++;

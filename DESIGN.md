@@ -255,10 +255,11 @@ Each stage has **its own regular enemies** and wave mix. They fill the same four
 
 ---
 
-**Pilot reveals:** pilots are revealed one at a time, cheapest ship first (Vesper, Trident, Hornet, Bulwark, Halo,
-Tide, Hive, Lance, Corona, Tempest, Needle, Pulsar). Each run that ends (death, quitting after 30s+, or clearing a
-stage) reveals the next one, and the results screen says "NEW PILOT AVAILABLE". Revealed pilots show in full colour
-with a "FOR HIRE!" tag and can be bought once you have the credits. Unrevealed ones stay "???".
+**The Hangar grows:** the first time you play, the Hangar holds only Vesper. Each run that ends (death, quitting
+after 30s+, or clearing a stage) unlocks the next ship, cheapest first (Vesper, Trident, Hornet, Bulwark, Halo,
+Tide, Hive, Lance, Corona, Tempest, Needle, Pulsar). The results screen says "NEW SHIP UNLOCKED: X · SEE THE
+HANGAR!", and the ship joins the wheel tagged NEW!, still a silhouette (ship and pilot, "PILOT: ???") until you buy
+it with credits. Ships you haven't unlocked aren't in the wheel at all.
 
 **Secret stage: Boss Rush.** Beat stage 5 **at full health** to unlock it. The win screen then offers "SECRET STAGE:
 BOSS RUSH!" (continuing the run), and it appears as stage "??" on stage select (head start: 40 level-ups). All 20

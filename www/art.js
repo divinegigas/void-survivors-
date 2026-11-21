@@ -1984,10 +1984,10 @@ function drawTab(id, x, y, w, h, label, tab) {
 
 // The ship wheel: the chosen ship up front with its pilot behind; the others ride
 // around a wheel. Swipe or use the arrows. Locked ships and pilots are silhouettes.
-const SHIP_IDS = SHIP_ORDER;          // cheapest first, so the next pilot to reveal sits next to you
+const shipList = () => SHIP_ORDER.filter(shipRevealed);   // only ships you've unlocked so far; one more after each run
 let wheelIdx = -1, wheelPos = 0;
 function wheelSpin(d) {
-  const n = SHIP_IDS.length;
+  const n = shipList().length;
   wheelIdx = (wheelIdx + d + n) % n;
   S.armed = null; UIM.wheelT = 0;
   snd('click');
@@ -1998,11 +1998,10 @@ function uiSwipe(dir) {
 }
 
 function drawShipWheel(top, bottom) {
-  const n = SHIP_IDS.length;
-  if (wheelIdx < 0) { wheelIdx = Math.max(0, SHIP_IDS.indexOf(META.ship)); wheelPos = wheelIdx; }
+  const SHIP_IDS = shipList(), n = SHIP_IDS.length;
+  if (wheelIdx < 0 || wheelIdx >= n) { wheelIdx = Math.max(0, SHIP_IDS.indexOf(META.ship)); wheelPos = wheelIdx; }
   const id = SHIP_IDS[wheelIdx], ship = SHIPS[id], P = PILOTS[id], wp = WEAPONS[ship.weapon];
   const owned = !!META.ships[id], sel = META.ship === id, tc = TIER[wp.tier].color, cost = shipCost(id), afford = META.bank >= cost;
-  const known = shipRevealed(id);      // revealed pilots can be bought (and are shown in full); the rest stay a mystery
   const avail = bottom - top, wheelH = avail * 0.5;
 
   // backdrop slab in the ship's tier colour, pilot behind
@@ -2010,15 +2009,15 @@ function drawShipWheel(top, bottom) {
   const pk = easeOutBack(clamp(UIM.wheelT / 0.32, 0, 1));
   const ph = wheelH * 1.02;
   ctx.save(); path([0, top + 8, W, top + wheelH * 0.05, W, top + wheelH * 0.9, 0, top + wheelH]); ctx.clip();
-  drawPilot(id, 'normal', W / 2 - ph * 0.42 - 34 + (1 - pk) * 50, top + wheelH - ph + 4, ph, !known, 0.35 + 0.65 * pk);
+  drawPilot(id, 'normal', W / 2 - ph * 0.42 - 34 + (1 - pk) * 50, top + wheelH - ph + 4, ph, !owned, 0.35 + 0.65 * pk);
   ctx.restore();
-  if (!known) inkText('?', W / 2 - 34, top + wheelH * 0.45, 70, '#6b6590', 'center', FONT_D, 6);
+  if (!owned) inkText('?', W / 2 - 34, top + wheelH * 0.45, 70, '#6b6590', 'center', FONT_D, 6);
 
   // ships around the wheel (far ones first)
   const cy = top + wheelH * 0.8, base = Math.round(wheelPos), list = [];
   for (let k = -3; k <= 3; k++) {
     const i = ((base + k) % n + n) % n, off = shortest(i, wheelPos, n);
-    if (Math.abs(off) <= 2.6) list.push([i, off]);
+    if (Math.abs(off) <= Math.min(2.6, n / 2) && !list.some(l => l[0] === i)) list.push([i, off]);   // small hangars: each ship once
   }
   list.sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
   for (const [i, off] of list) {
@@ -2029,22 +2028,24 @@ function drawShipWheel(top, bottom) {
     drawShip(x, y + Math.sin(performance.now() / 500 + i) * 2, sc, SHIPS[sid], !META.ships[sid]);
     ctx.globalAlpha = 1;
   }
-  if (known && !owned) slamTitle('FOR HIRE!', W - 80, top + wheelH * 0.3, 24, COL.gold, COL.red, 0.12);
-  drawButton('wl', 8, cy - 26, 40, 50, '<', '#5a5480', () => wheelSpin(-1));
-  drawButton('wr', W - 48, cy - 26, 40, 50, '>', '#5a5480', () => wheelSpin(1));
+  if (!owned) slamTitle('NEW!', W - 70, top + wheelH * 0.3, 26, COL.gold, COL.red, 0.12);
+  if (n > 1) {
+    drawButton('wl', 8, cy - 26, 40, 50, '<', '#5a5480', () => wheelSpin(-1));
+    drawButton('wr', W - 48, cy - 26, 40, 50, '>', '#5a5480', () => wheelSpin(1));
+  }
 
   // info card
   const iy = top + wheelH + 8, ih = avail - wheelH - 66;
   const ie = easeOutBack(clamp(UIM.wheelT / 0.3, 0, 1));
   ctx.save(); ctx.translate((1 - ie) * 40, 0);
   slant(10, iy, W - 20, ih, PAPER, 5, 12);
-  inkText(known ? ship.name : '???', 30, iy + 20, 26, owned ? ship.color : '#6b6590', 'left', FONT_D, 4);
+  inkText(ship.name, 30, iy + 20, 26, owned ? ship.color : '#6b6590', 'left', FONT_D, 4);
   ctx.font = `12px ${FONT_D}`;
   const tier = TIER[wp.tier].name, pw = ctx.measureText(tier).width + 12;
   roundRect(W - 30 - pw, iy + 11, pw, 18, 9); ctx.fillStyle = tc; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = INK; ctx.stroke();
   plainText(tier, W - 30 - pw / 2, iy + 21, 12, INK);
-  plainText(known ? `PILOT: ${P.name}` : 'PILOT: ???', 30, iy + 42, 14, '#4a4470', 'left');
-  plainText(known ? `"${P.quote}"` : 'Finish a run to reveal the next pilot.', 30, iy + 58, 11, '#4a4470', 'left', FONT_B);
+  plainText(owned ? `PILOT: ${P.name}` : 'PILOT: ???', 30, iy + 42, 14, '#4a4470', 'left');
+  plainText(owned ? `"${P.quote}"` : 'Unlock this ship to meet the pilot.', 30, iy + 58, 11, '#4a4470', 'left', FONT_B);
   plainText(`${wp.name.toUpperCase()} · ${ship.role.toUpperCase()}`, 30, iy + 76, 13, INK, 'left');
   // stats
   const lv = META.shipLv[id] || {}, rows = [['HULL', 'hull'], ['POWER', 'dmg'], ['FIRE RATE', 'rate'], ['PICKUP', 'magnet'], ['HANDLING', 'handling']];
@@ -2069,7 +2070,6 @@ function drawShipWheel(top, bottom) {
   const ay = bottom - 54;
   if (owned) drawButton('wsel', 40, ay, W - 80, 46, sel ? 'FLYING THIS ONE!' : 'SELECT', sel ? '#5a8a4a' : COL.xp,
                         () => { if (!sel) { META.ship = id; saveMeta(); S.shipId = id; S.ship = ship; buzz(20); } }, !sel);
-  else if (!known) drawButton('wbuy', 40, ay, W - 80, 46, 'FINISH A RUN TO REVEAL', '#5a5480', () => {}, false);
   else if (!afford) drawButton('wbuy', 40, ay, W - 80, 46, `NEED ${cost} CR · YOU HAVE ${META.bank}`, '#5a5480', () => {}, false);
   else drawButton('wbuy', 40, ay, W - 80, 46, isArmed(id) ? 'TAP AGAIN TO UNLOCK' : `UNLOCK · ${cost} CR`, isArmed(id) && blinkOn() ? COL.red : '#ff8c1a',
                   () => confirmBuy(id, () => {
@@ -2142,8 +2142,7 @@ function drawGameOver() {
   if (won && !finale && !rush) inkText(`Your loadout carries on · +1 weapon and +1 support slot`, W / 2, H * 0.74 - 16, 11, COL.dim, 'center', FONT_B, 3);
   if (S.secretOpen) inkText(S.secretFound ? 'FLAWLESS! A SECRET STAGE HAS OPENED...' : 'THE SECRET STAGE AWAITS...', W / 2, H * 0.74 - 16, 13, blinkOn() ? COL.gold : COL.red, 'center', FONT_D, 3);
   if (S.newPilot) {
-    const np = PILOTS[S.newPilot];
-    inkText(`NEW PILOT AVAILABLE: ${np.name.toUpperCase()}`, W / 2, H * 0.74 - ((won && !finale && !rush) || S.secretOpen ? 34 : 16), 13, blinkOn() ? COL.gold : PAPER, 'center', FONT_D, 3);
+    inkText(`NEW SHIP UNLOCKED: ${SHIPS[S.newPilot].name.toUpperCase()} · SEE THE HANGAR!`, W / 2, H * 0.74 - ((won && !finale && !rush) || S.secretOpen ? 34 : 16), 13, blinkOn() ? COL.gold : PAPER, 'center', FONT_D, 3);
   }
   const rows = [['STAGE', rush ? 'SECRET' : `${S.stage} / ${STAGE_COUNT}`], ['RUN TIME', fmtTime(S.runT)], ['LEVEL', String(S.level)], ['KILLS', String(S.kills)], ['BEST', fmtTime(META.best)]];
   const py = cy + 62;
@@ -2319,8 +2318,8 @@ function uiTick(dt) {
   UIM.faceHit = Math.max(0, UIM.faceHit - dt);
   if (S.p && S.p.hp < UIM.lastHp && S.state === 'play') UIM.faceHit = 0.5;
   if (S.p) UIM.lastHp = S.p.hp;
-  if (wheelIdx >= 0) {
-    const n = SHIP_IDS.length, diff = shortest(wheelIdx, wheelPos, n);
+  if (wheelIdx >= 0 && S && S.state === 'hangar') {
+    const n = shipList().length, diff = shortest(wheelIdx, wheelPos, n);
     wheelPos = ((wheelPos + diff * Math.min(1, dt * 10)) % n + n) % n;
   }
 }
