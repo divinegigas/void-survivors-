@@ -261,6 +261,11 @@ Each stage has **its own regular enemies** and wave mix. They fill the same four
 Every stage has **its own three mini-bosses**. Their health is the base (2200 / 3600 / 5200 for the 1st / 2nd /
 3rd) × `bossHpMul 1.0` × `miniBossHpMul 1.25` × (1 + stage − 1). All get angrier below half health.
 
+**Bosses scale with your firepower.** When any boss (mini or final) arrives, its health is multiplied by
+`firepower ^ bossPowerScale (0.6)`, where firepower = damage × fire rate × (1 + 0.35 × extra Multishot
+projectiles) × (1 + crit chance), 1.0 for a fresh ship. Without this a maxed Hangar plus damage passives
+(about 16× firepower) killed final bosses in 3–4 seconds.
+
 - **Stage 2:** **Rift Manta** (curtains with a gap, wingtip streams; warps with a ring when hurt) ·
   **Flux Oculus** (a giant eye; 3 orbiting crystals fire aimed shots, 5 when hurt, plus rings and a twin spiral) ·
   **Static Wraith** (teleports every 3s and its ghost copies fire too; static rain).

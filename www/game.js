@@ -35,6 +35,9 @@ const CFG = {
   ultCooldownPerLevel: 0.08,  // each ultimate level recharges 8% faster
   ultImpact: 0.35,            // seconds of slow-motion "impact frame" right after the ultimate fires
   miniBossHpMul: 1.25,        // mini-bosses get this much extra health on top of bossHpMul
+  bossPowerScale: 0.6,        // bosses get tougher as your firepower grows: health x (your firepower ^ this).
+                              // Firepower = damage x fire rate x multishot x crits, 1.0 for a fresh ship.
+                              // 0 = off, 1 = fights always take the same time whatever your upgrades.
   signatureCooldown: 0.8,     // a ship's own weapon fires 20% faster than the same weapon picked up later (1 = no bonus)
   rarityWeights: { common: 4, uncommon: 2, rare: 1 },   // common is 2x as likely as uncommon, which is 2x rare
   shipCost: { common: 300, uncommon: 900, rare: 2000 }, // credits to unlock a ship, by its weapon's tier
@@ -766,11 +769,17 @@ const LEVEL_EVENTS = () => [
 ];
 const enemyName = type => ENEMY[type].name;
 
+// How much stronger your guns are than a fresh ship's (Hangar Power/Fire rate + passives).
+function firepower() {
+  const m = S.mod || { dmg: 1, cd: 1, count: 0, crit: 0 };
+  return m.dmg * (1 / m.cd) * (1 + 0.35 * m.count) * (1 + (m.crit || 0));
+}
 function spawnEnemy(type, x, y, extra) {
   const d = ENEMY[type], st = stageDef(), k = stageD(), sc = CFG.stageScale;
-  const hp = d.final ? d.hp * CFG.bossHpMul * (1 + sc.finalHp * k)       // bosses have fixed health per stage
+  const bossK = d.boss ? Math.pow(Math.max(1, firepower()), CFG.bossPowerScale) : 1;
+  const hp = bossK * (d.final ? d.hp * CFG.bossHpMul * (1 + sc.finalHp * k)       // bosses have fixed health per stage
            : d.boss ? d.hp * CFG.bossHpMul * CFG.miniBossHpMul * (1 + sc.bossHp * k)
-           : d.hp * (1 + CFG.enemyHpGrowthPerMin * (1 + sc.hpGrowth * k) * S.t / 60) * (1 + sc.enemyHp * k);
+           : d.hp * (1 + CFG.enemyHpGrowthPerMin * (1 + sc.hpGrowth * k) * S.t / 60) * (1 + sc.enemyHp * k));
   const foe = !d.boss && FOE[(st.foes || {})[type] || type], color = foe ? foe.color : d.color;
   const e = Object.assign({ type, x, y, hp, maxHp: hp, r: d.final ? d.r * CFG.finalBossSize : d.r,
                             look: foe ? st.foes[type] : type, blood: foe ? foe.blood : d.blood, xp: d.xp, credits: d.credits * (1 + sc.credits * k), color, boss: !!d.boss, final: !!d.final,
