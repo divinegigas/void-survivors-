@@ -415,3 +415,21 @@ The **systems, numbers, content and tone stay the same.** What changes is the ca
   in the UI.
 - **Audio:** the same five tracks and sound design; port the synth approach, or render the stems.
 - **Platforms:** Windows and Linux (Fedora first), exported by GitHub Actions.
+
+---
+
+## 15. Progression tweaks (latest)
+
+- **Easier start:** XP needed for levels 1–5 is ×0.5 / 0.6 / 0.7 / 0.8 / 0.9 (`xp.earlyMul`).
+- **Level caps grow with the stage:** weapons and passives can reach level **5 / 8 / 11 / 14 / 17** on stages 1–5
+  (`levelCapByStage`), so you can't max everything and choices matter. Above level 5 a weapon **overcharges**:
+  +15% damage and 5% faster per level (it behaves as level 5 otherwise). Passives keep scaling at a gentler rate
+  (Rapid −5%, Power +8%, Blast +8%, Velocity +10%, Crit +3% (max 60%), Tractor +20%, Data Core +6%, Bounty +12%).
+  Reactive Armor and Nano Repair stop at 5, Hull Plating at 3.
+- **Rapid Fire** shows up 1.5× as often; **Multishot** is the rarest card (×0.35 weight) and now has 3 levels,
+  each **+1 projectile for every weapon** (extra cannon barrels, spread shots, rockets, laser beams, wing shots,
+  echo novas, orbit blades, chain jumps, rails, flak shells, discs, waves, drones).
+- **Secret pity:** each run in a row that ends without clearing a stage makes rare cards 30% likelier (up to 2.5×).
+  Clearing a stage resets it. Never shown to the player.
+- **Results screen:** under the bounty total, a box "SPEND IT: N SHIP UPGRADES READY ›" (or "SAVE UP FOR SHIP
+  UPGRADES ›") jumps straight to the ship's Hangar upgrades.

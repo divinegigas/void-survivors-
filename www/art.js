@@ -1360,6 +1360,7 @@ function drawWorld() {
   }
   // Shockwaves
   for (const n of S.novas) {
+    if (n.delay > 0) continue;
     const life = n.small ? 0.3 : 0.55, a = Math.max(0, 1 - n.age / life);
     ctx.globalAlpha = a;
     ctx.lineWidth = n.small ? 5 : 8; ctx.strokeStyle = INK;
@@ -1500,10 +1501,13 @@ function drawPlayerShots() {
 
 function drawLaser() {
   if (!S.laser) return;
-  const x = S.p.x, w = S.laser.w, bot = S.p.y - 14;
+  for (const o of S.laser.offs || [0]) drawBeam(S.p.x + o, S.laser.w, S.laser.color);
+}
+function drawBeam(x, w, color) {
+  const bot = S.p.y - 14;
   const wob = rand(-1, 1);
   ctx.fillStyle = INK; ctx.fillRect(x - w - 2 + wob, 0, (w + 2) * 2, bot);
-  ctx.fillStyle = S.laser.color; ctx.fillRect(x - w + wob, 0, w * 2, bot);
+  ctx.fillStyle = color; ctx.fillRect(x - w + wob, 0, w * 2, bot);
   ctx.fillStyle = PAPER; ctx.fillRect(x - w * 0.3, 0, w * 0.6, bot);
   // comic speed ticks across the beam
   ctx.strokeStyle = INK; ctx.lineWidth = 1.5;
@@ -1689,10 +1693,10 @@ function drawHud() {
   // Slots shrink a little once a row holds more than four (stage 3 onwards).
   const sig = S.ship.weapon, wIds = slotWeapons(), pIds = Object.keys(S.passives), sc = slotCount();
   const most = Math.max(sc.weapons, sc.passives), sz = most > 4 ? 19 : 23, step = sz + (most > 4 ? 4 : 5);
-  drawSlot(8, 42, WEAPONS[sig], S.weapons[sig].lvl, CFG.maxLevel, true, sz);
+  drawSlot(8, 42, WEAPONS[sig], S.weapons[sig].lvl, weaponMax(), true, sz);
   for (let i = 0; i < sc.weapons; i++) {
     const id = wIds[i];
-    drawSlot(38 + i * step, 42, id && WEAPONS[id], id && S.weapons[id].lvl, CFG.maxLevel, false, sz);
+    drawSlot(38 + i * step, 42, id && WEAPONS[id], id && S.weapons[id].lvl, weaponMax(), false, sz);
   }
   for (let i = 0; i < sc.passives; i++) {
     const id = pIds[i];
@@ -2198,8 +2202,13 @@ function drawGameOver() {
     inkText(`+${S.earned} CR`, 0, 2, 30, COL.red, 'center', FONT_D, 5);
     ctx.restore();
   }
-  inkText(`BOUNTY BANKED · ${META.bank} CR TOTAL`, W / 2, cyy + 52, 13, PAPER, 'center', FONT_D, 3);
-  if (S.newBest) inkText('NEW BEST TIME!', W / 2, cyy + 72, 16, COL.xp);
+  inkText(`BOUNTY BANKED · ${META.bank} CR TOTAL${S.newBest ? ' · NEW BEST TIME!' : ''}`, W / 2, cyy + 50, 13, S.newBest ? COL.xp : PAPER, 'center', FONT_D, 3);
+  // the "spend it" box: tap to jump straight to this ship's upgrades
+  const nUp = affordableUpgrades(), sy = cyy + 62;
+  if (bk >= 1) {
+    const hot = nUp > 0 && blinkOn();
+    drawButton('spend', 30, sy, W - 60, 30, nUp ? `SPEND IT: ${nUp} SHIP UPGRADE${nUp > 1 ? 'S' : ''} READY ›` : 'SAVE UP FOR SHIP UPGRADES ›', hot ? COL.gold : '#5a5480', openUpgrades, S.uiLock <= 0);
+  }
   const by = H * 0.74, on = S.uiLock <= 0;
   if (won && S.secretOpen) {
     drawButton('again', 40, by, W - 80, 54, 'SECRET STAGE: BOSS RUSH!', COL.red, nextStage, on);

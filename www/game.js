@@ -46,7 +46,13 @@ const CFG = {
   shipUnlockStage: { common: 1, uncommon: 2, rare: 3 }, // beat a boss on this stage (or later) to earn a ship of that tier
   upgradeCostMul: 3,          // multiplies every Hangar upgrade price
   deflectorRecharge: [0, 40, 32, 25, 19, 14],            // Deflector Shield recharge seconds per Hangar level
-  maxLevel: 5,                // max level for weapons and most passives
+  maxLevel: 5,                // weapons and passives at this level are 'full'; above it they overcharge
+  levelCapByStage: [5, 8, 11, 14, 17],   // how high a weapon or passive can go on stages 1-5 (Boss Rush: stage 5's)
+  overchargeDmg: 0.15,        // each weapon level above 5: +15% damage...
+  overchargeCd: 0.95,         // ...and 5% faster
+  cardWeight: { rapid: 1.5, multi: 0.35 },   // Rapid Fire shows up more often; Multishot is the rarest card
+  pityPerFail: 0.3,           // secret: each failed run in a row makes rare cards 30% likelier next run...
+  pityMax: 2.5,               // ...up to 2.5x
   upgradeChoices: 3,
   postLevelUpInvuln: 1.5,     // grace after picking an upgrade (finger needs to find the ship)
   postPauseInvuln: 1.5,       // grace after resuming from the pause menu
@@ -58,6 +64,7 @@ const CFG = {
     needBase: 6,              // XP for level 2
     needPerLevel: 3,          // extra XP needed per level
     needCurve: 0.35,          // extra XP that grows with level squared
+    earlyMul: [0.5, 0.6, 0.7, 0.8, 0.9],   // levels 1-5 need only this much (an easier start)
   },
 
   spawn: {
@@ -246,8 +253,8 @@ function resize() {
 // Shared modifiers from passives: S.mod.cd (cooldowns), .dmg, .area, .count,
 // .speed (projectile speed), .pierce.
 // ============================================================================
-function shoot(b) { S.bullets.push(b); return b; }
-const cd = base => base * S.mod.cd * (S.sig ? CFG.signatureCooldown : 1) * (S.overdrive > 0 ? ultOverdriveMul(ultLv()) : 1) * (S.warp > 0 && ultPerk('haste') ? 0.6 : 1);
+function shoot(b) { if (S.overDmg > 1) { b.dmg *= S.overDmg; if (b.sdmg) b.sdmg *= S.overDmg; } S.bullets.push(b); return b; }
+const cd = base => base * S.mod.cd * (S.overCd || 1) * (S.sig ? CFG.signatureCooldown : 1) * (S.overdrive > 0 ? ultOverdriveMul(ultLv()) : 1) * (S.warp > 0 && ultPerk('haste') ? 0.6 : 1);
 const spd = v => v * S.mod.speed;
 function nearestEnemy(x, y, maxDist, skip) {
   let best = null, bd = maxDist * maxDist;
@@ -273,7 +280,7 @@ const WEAPONS = {
     update(w, dt) {
       if ((w.t -= dt) > 0) return;
       w.t = cd(w.lvl >= 4 ? 0.13 : 0.16);
-      const n = Math.min(5, (w.lvl >= 5 ? 3 : w.lvl >= 3 ? 2 : 1) + S.mod.count), dmg = 8 + 2 * w.lvl;
+      const n = (w.lvl >= 5 ? 3 : w.lvl >= 3 ? 2 : 1) + S.mod.count, dmg = 8 + 2 * w.lvl;
       for (let i = 0; i < n; i++) gunShot(S.p.x + (i - (n - 1) / 2) * 8, S.p.y - 16, UP, CFG.player.bulletSpeed, dmg, '#ffd60a');
     },
   },
@@ -312,9 +319,10 @@ const WEAPONS = {
       if (w.on > 0) {
         w.on -= dt;
         const width = (8 + 3 * w.lvl) * S.mod.area, dps = 70 + 30 * w.lvl;
-        S.laser = { w: width, color: this.color };
+        const offs = [0]; for (let k = 1; k <= S.mod.count; k++) offs.push(k % 2 ? -(width + 6) * Math.ceil(k / 2) : (width + 6) * Math.ceil(k / 2));   // Multishot: extra beams
+        S.laser = { w: width, color: this.color, offs };
         for (const e of S.enemies) {
-          if (!e.dead && e.y < S.p.y && Math.abs(e.x - S.p.x) < width / 2 + e.r) hitEnemy(e, dps * dt, true);
+          if (!e.dead && e.y < S.p.y && offs.some(o => Math.abs(e.x - S.p.x - o) < width / 2 + e.r)) hitEnemy(e, dps * dt, true);
         }
       } else if ((w.t -= dt) <= 0) {
         w.t = cd(2.7 - 0.22 * w.lvl);
@@ -329,8 +337,8 @@ const WEAPONS = {
     update(w, dt) {
       if ((w.t -= dt) > 0) return;
       w.t = cd(CFG.player.fireInterval * (w.lvl >= 3 ? 1.0 : 1.3));
-      const dmg = CFG.player.damage * (0.4 + 0.15 * w.lvl);
-      for (const side of [-1, 1]) gunShot(S.p.x + side * 24, S.p.y - 4, UP, CFG.player.bulletSpeed, dmg, this.color);
+      const dmg = CFG.player.damage * (0.4 + 0.15 * w.lvl), n = 1 + S.mod.count;
+      for (const side of [-1, 1]) for (let k = 0; k < n; k++) gunShot(S.p.x + side * (24 + k * 7), S.p.y - 4, UP + side * k * 0.06, CFG.player.bulletSpeed, dmg, this.color);
     },
   },
 
@@ -340,8 +348,9 @@ const WEAPONS = {
     update(w, dt) {
       if ((w.t -= dt) > 0) return;
       w.t = cd(6.5 - 0.7 * w.lvl);
-      S.novas.push({ x: S.p.x, y: S.p.y, r: 0, max: (70 + 18 * w.lvl) * S.mod.area, dmg: 35 + 20 * w.lvl,
-                     age: 0, hit: new Set(), color: this.color });
+      for (let k = 0; k <= S.mod.count; k++)            // Multishot: echo blasts right after
+        S.novas.push({ x: S.p.x, y: S.p.y, r: 0, max: (70 + 18 * w.lvl) * S.mod.area * (1 + 0.15 * k), dmg: (35 + 20 * w.lvl) * S.overDmg,
+                       age: 0, delay: k * 0.18, hit: new Set(), color: this.color });
     },
   },
 
@@ -350,7 +359,7 @@ const WEAPONS = {
     levels: ['2 blades circle your ship and block bullets', '3 blades', 'Faster spin, more damage', '4 blades', '5 blades, max damage'],
     update(w, dt) {
       w.a = (w.a || 0) + dt * (2.6 + 0.25 * w.lvl);
-      const n = Math.min(8, 1 + Math.ceil(w.lvl * 0.8) + S.mod.count);
+      const n = Math.min(10, 1 + Math.ceil(w.lvl * 0.8) + S.mod.count);
       const R = 40 * S.mod.area, sr = 6 * Math.sqrt(S.mod.area), dmg = 10 + 5 * w.lvl;
       w.pos = [];
       for (let i = 0; i < n; i++) {
@@ -392,7 +401,7 @@ const WEAPONS = {
     update(w, dt) {
       if ((w.t -= dt) > 0) return;
       w.t = cd(2.1 - 0.2 * w.lvl);
-      const xs = w.lvl >= 5 ? [-8, 8] : [0];
+      const xs = (w.lvl >= 5 ? [-8, 8] : [0]).concat(Array.from({ length: S.mod.count }, (_, k) => (k % 2 ? 1 : -1) * (20 + 12 * Math.floor(k / 2))));
       for (const ox of xs) {
         shoot({ x: S.p.x + ox, y: S.p.y - 16, vx: 0, vy: -spd(1500), r: 5, dmg: 60 + 30 * w.lvl + (w.lvl >= 4 ? 40 : 0),
                 kind: 'rail', pierce: 999, hits: new Set(), color: this.color });
@@ -407,7 +416,7 @@ const WEAPONS = {
     update(w, dt) {
       if ((w.t -= dt) > 0) return;
       w.t = cd(1.15 - 0.08 * w.lvl);
-      const angles = w.lvl >= 5 ? [UP - 0.25, UP + 0.25] : [UP];
+      const angles = (w.lvl >= 5 ? [UP - 0.25, UP + 0.25] : [UP]).concat(Array.from({ length: S.mod.count }, (_, k) => UP + (k % 2 ? 1 : -1) * (0.45 + 0.15 * Math.floor(k / 2))));
       for (const a of angles) {
         shoot({ x: S.p.x, y: S.p.y - 12, vx: Math.cos(a) * spd(420), vy: Math.sin(a) * spd(420), r: 5, dmg: 10,
                 kind: 'flak', fuse: 0.45, shards: 6 + 2 * w.lvl + 2 * S.mod.count, sdmg: 7 + 2.5 * w.lvl,
@@ -442,7 +451,8 @@ const WEAPONS = {
         hw: (40 + 8 * w.lvl) * S.mod.area, dmg: 9 + 5 * w.lvl + (w.lvl >= 4 ? 8 : 0),
         kind: 'wave', pierce: 999, hits: new Set(), color: this.color });
       fire(0);
-      if (w.lvl >= 5) fire(40);
+      const extra = (w.lvl >= 5 ? 1 : 0) + S.mod.count;
+      for (let k = 1; k <= extra; k++) fire(40 * k);
     },
   },
 
@@ -450,10 +460,10 @@ const WEAPONS = {
     name: 'Hunter Drones', color: '#d6dcff', glyph: '◇', tier: 'uncommon',
     levels: ['A drone that shoots at nearby enemies', 'Faster drone fire', '2 drones', 'More damage', '3 drones'],
     update(w, dt) {
-      const n = Math.min(4, 1 + Math.floor((w.lvl - 1) / 2) + S.mod.count);
+      const n = Math.min(7, 1 + Math.floor((w.lvl - 1) / 2) + S.mod.count);
       w.drones = w.drones || [];
       while (w.drones.length < n) w.drones.push({ x: S.p.x, y: S.p.y, t: Math.random() * 0.3 });
-      const offs = [[-42, -26], [42, -26], [-58, 14], [58, 14]];
+      const offs = [[-42, -26], [42, -26], [-58, 14], [58, 14], [0, -48], [-30, 40], [30, 40]];
       w.drones.forEach((d, i) => {
         const tx = S.p.x + offs[i][0], ty = S.p.y + offs[i][1] + Math.sin(S.t * 3 + i) * 4;
         d.x += (tx - d.x) * Math.min(1, dt * 6);
@@ -631,24 +641,32 @@ function updateUlts(dt) {
 // Passives (12). levels[i] describes what level i+1 gives.
 // ============================================================================
 const PASSIVES = {
-  rapid:    { name: 'Rapid Fire',         glyph: '»', color: '#3df5ff', tier: 'common', levels: Array(5).fill('-10% weapon cooldowns') },
-  power:    { name: 'Power Core',         glyph: '▲', color: '#ff5d5d', tier: 'common', levels: Array(5).fill('+12% damage') },
-  area:     { name: 'Blast Amplifier',    glyph: '◎', color: '#ffb35d', tier: 'uncommon', levels: Array(5).fill('+15% blast radius and weapon size') },
-  multi:    { name: 'Multishot',          glyph: '⁂', color: '#ffd23f', tier: 'rare',
-              levels: ['+1 projectile for most weapons', '+5% damage', '+2 projectiles', '+5% damage', '+3 projectiles'] },
+  rapid:    { name: 'Rapid Fire',         glyph: '»', color: '#3df5ff', tier: 'common', levels: Array(5).fill('-10% weapon cooldowns'), more: '-5% weapon cooldowns' },
+  power:    { name: 'Power Core',         glyph: '▲', color: '#ff5d5d', tier: 'common', levels: Array(5).fill('+12% damage'), more: '+8% damage' },
+  area:     { name: 'Blast Amplifier',    glyph: '◎', color: '#ffb35d', tier: 'uncommon', levels: Array(5).fill('+15% blast radius and weapon size'), more: '+8% blast radius and size' },
+  multi:    { name: 'Multishot',          glyph: '⁂', color: '#ffd23f', tier: 'rare', max: 3,    // the rarest card (CFG.cardWeight)
+              levels: ['+1 projectile for EVERY weapon', '+1 more projectile for every weapon', '+1 more: 3 extra for every weapon'] },
   velocity: { name: 'Velocity Rounds',    glyph: '➤', color: '#9dffef', tier: 'uncommon',
-              levels: ['+15% projectile speed', '+15% projectile speed', '+15% speed, bullets pierce 1 enemy', '+15% projectile speed', '+15% speed, bullets pierce 2 enemies'] },
-  crit:     { name: 'Targeting Computer', glyph: '⌖', color: '#ffe45d', tier: 'rare', levels: Array(5).fill('+7% chance of double damage') },
-  reactive: { name: 'Reactive Armor',     glyph: '✸', color: '#ff9d5d', tier: 'uncommon',
+              levels: ['+15% projectile speed', '+15% projectile speed', '+15% speed, bullets pierce 1 enemy', '+15% projectile speed', '+15% speed, bullets pierce 2 enemies'], more: '+10% projectile speed' },
+  crit:     { name: 'Targeting Computer', glyph: '⌖', color: '#ffe45d', tier: 'rare', levels: Array(5).fill('+7% chance of double damage'), more: '+3% crit chance' },
+  reactive: { name: 'Reactive Armor',     glyph: '✸', color: '#ff9d5d', tier: 'uncommon', max: 5,
               levels: ['Getting hit blasts nearby enemies and bullets away', 'Bigger blast', 'Longer safety blink after a hit', 'Bigger, stronger blast', 'Massive blast'] },
   plating:  { name: 'Hull Plating',       glyph: '⬢', color: '#b9c4ff', tier: 'common', max: 3, levels: Array(3).fill('+1 max hull (and repair 1)') },
-  repair:   { name: 'Nano Repair',        glyph: '✚', color: '#5dff9e', tier: 'rare',
+  repair:   { name: 'Nano Repair',        glyph: '✚', color: '#5dff9e', tier: 'rare', max: 5,
               levels: ['Repair 1 hull every 45s', 'Every 38s', 'Every 31s', 'Every 24s', 'Every 17s'] },
-  tractor:  { name: 'Tractor Beam',       glyph: '⊕', color: '#5dff9e', tier: 'common', levels: Array(5).fill('+30% crystal pickup range') },
-  datacore: { name: 'Data Core',          glyph: '◈', color: '#c86bff', tier: 'common', levels: Array(5).fill('+10% XP') },
-  bounty:   { name: 'Bounty Hunter',      glyph: '$', color: '#ffd23f', tier: 'uncommon', levels: Array(5).fill('+20% credits from kills') },
+  tractor:  { name: 'Tractor Beam',       glyph: '⊕', color: '#5dff9e', tier: 'common', levels: Array(5).fill('+30% crystal pickup range'), more: '+20% pickup range' },
+  datacore: { name: 'Data Core',          glyph: '◈', color: '#c86bff', tier: 'common', levels: Array(5).fill('+10% XP'), more: '+6% XP' },
+  bounty:   { name: 'Bounty Hunter',      glyph: '$', color: '#ffd23f', tier: 'uncommon', levels: Array(5).fill('+20% credits from kills'), more: '+12% credits' },
 };
-const passiveMax = id => PASSIVES[id].max || CFG.maxLevel;
+const levelCap = () => CFG.levelCapByStage[Math.min(CFG.levelCapByStage.length, (S && S.stage) || 1) - 1];
+const weaponMax = () => levelCap();
+const passiveMax = id => PASSIVES[id].max || levelCap();
+const OVER = id => Math.max(0, PL(id) - CFG.maxLevel), BASE = id => Math.min(CFG.maxLevel, PL(id));
+// Card text for any level: levels 1-5 are written out, higher ones are "overcharge" steps
+function levelText(d, lvl, isW) {
+  if (lvl < d.levels.length) return d.levels[lvl];
+  return isW ? `Overcharge: +${Math.round(CFG.overchargeDmg * 100)}% damage, ${Math.round((1 - CFG.overchargeCd) * 100)}% faster` : d.more;
+}
 const PL = id => (S.passives[id] ? S.passives[id].lvl : 0);
 const shieldRecharge = () => CFG.deflectorRecharge[ML('deflector')];
 const repairEvery = () => 52 - 7 * PL('repair');
@@ -720,19 +738,19 @@ function endReveal() {
 // All modifiers in one place: hangar upgrades + passives.
 function recalcMods() {
   const m = {
-    dmg: shipStat('dmg', ML('dmg')) + 0.12 * PL('power') + (PL('multi') >= 2 ? 0.05 : 0) + (PL('multi') >= 4 ? 0.05 : 0),
-    cd: (1 / shipStat('rate', ML('rate'))) * Math.pow(0.9, PL('rapid')),
-    area: 1 + 0.15 * PL('area'),
-    count: [0, 1, 1, 2, 2, 3][PL('multi')],
-    speed: 1 + 0.15 * PL('velocity'),
+    dmg: shipStat('dmg', ML('dmg')) + 0.12 * BASE('power') + 0.08 * OVER('power'),
+    cd: (1 / shipStat('rate', ML('rate'))) * Math.pow(0.9, BASE('rapid')) * Math.pow(0.95, OVER('rapid')),
+    area: 1 + 0.15 * BASE('area') + 0.08 * OVER('area'),
+    count: PL('multi'),                      // +1 projectile for every weapon per Multishot level
+    speed: 1 + 0.15 * BASE('velocity') + 0.1 * OVER('velocity'),
     pierce: PL('velocity') >= 5 ? 2 : PL('velocity') >= 3 ? 1 : 0,
-    crit: 0.07 * PL('crit'),
-    xp: 1 + 0.06 * ML('xp') + 0.1 * PL('datacore'),
-    credit: 1 + 0.1 * ML('credits') + 0.2 * PL('bounty'),
+    crit: Math.min(0.6, 0.07 * BASE('crit') + 0.03 * OVER('crit')),
+    xp: 1 + 0.06 * ML('xp') + 0.1 * BASE('datacore') + 0.06 * OVER('datacore'),
+    credit: 1 + 0.1 * ML('credits') + 0.2 * BASE('bounty') + 0.12 * OVER('bounty'),
   };
   S.mod = m;
   const p = S.p;
-  p.magnet = CFG.player.magnetRadius * (shipStat('magnet', ML('magnet')) + 0.3 * PL('tractor'));
+  p.magnet = CFG.player.magnetRadius * (shipStat('magnet', ML('magnet')) + 0.3 * BASE('tractor') + 0.2 * OVER('tractor'));
   p.maxHp = shipStat('hull', ML('hull')) + PL('plating');
   p.handling = CFG.player.handling * shipStat('handling', ML('handling'));
 }
@@ -742,8 +760,8 @@ function recalcMods() {
 // ============================================================================
 let S = null;
 function xpNeed(level) {
-  const l = level - 1;
-  return Math.round(CFG.xp.needBase + CFG.xp.needPerLevel * l + CFG.xp.needCurve * l * l);
+  const l = level - 1, early = CFG.xp.earlyMul[l] || 1;
+  return Math.max(2, Math.round((CFG.xp.needBase + CFG.xp.needPerLevel * l + CFG.xp.needCurve * l * l) * early));
 }
 
 function newGame(state, stage) {
@@ -1446,7 +1464,7 @@ function gunnerFire(e) {            // each stage's big shooter has its own patt
 
 function hitEnemy(e, dmg, quiet) {
   if (e.dead) return;
-  let d = dmg * S.mod.dmg;
+  let d = dmg * S.mod.dmg * (S.overDmg || 1);
   if (S.mod.crit && Math.random() < S.mod.crit) { d *= 2; if (!quiet) sparks(e.x, e.y, '#ffe45d', 3); }
   e.hp -= d;
   e.flash = 0.06;
@@ -1613,6 +1631,7 @@ function levelComplete() {
   META.cleared = META.cleared || {};
   META.cleared[S.stage] = true;
   if (S.stage === STAGE_COUNT) META.beatGame = true;
+  S.clearedAny = true; META.failStreak = 0;
   if (S.stage === STAGE_COUNT && S.p.hp >= S.p.maxHp && !META.secret) { META.secret = true; S.secretFound = true; }   // flawless finale
   if (S.stage === STAGE_COUNT && META.secret) S.secretOpen = true;
   revealPilot();
@@ -1631,6 +1650,7 @@ function gameOver(quit) {
   S.earned = bankCredits();
   S.newBest = S.runT > META.best;
   if (S.newBest) META.best = S.runT;
+  if (!S.clearedAny) META.failStreak = (META.failStreak || 0) + 1;     // secret pity counter (see pickWeighted)
   revealPilot();
   saveMeta();
   startReveal();
@@ -1665,7 +1685,9 @@ function nextStage() {
 // ============================================================================
 const slotWeapons = () => Object.keys(S.weapons).filter(id => !S.weapons[id].builtin);
 function pickWeighted(arr) {      // rarer things show up less often
-  const wts = arr.map(c => CFG.rarityWeights[(WEAPONS[c.id] || PASSIVES[c.id]).tier]);
+  const pity = Math.min(CFG.pityMax, 1 + CFG.pityPerFail * (META.failStreak || 0));   // secret: bad luck makes rares likelier
+  const wts = arr.map(c => { const d = WEAPONS[c.id] || PASSIVES[c.id];
+    return CFG.rarityWeights[d.tier] * (d.tier === 'rare' ? pity : 1) * (CFG.cardWeight[c.id] || 1); });
   let r = Math.random() * wts.reduce((a, b) => a + b, 0);
   for (let i = 0; i < arr.length; i++) if ((r -= wts[i]) <= 0) return arr.splice(i, 1)[0];
   return arr.pop();
@@ -1679,7 +1701,7 @@ function buildChoices() {
     if (ups.length) return ups;            // everything maxed: normal cards instead
   }
   const ups = [], newW = [], newP = [];
-  for (const id in S.weapons) if (S.weapons[id].lvl < CFG.maxLevel) ups.push({ kind: 'wup', id });
+  for (const id in S.weapons) if (S.weapons[id].lvl < weaponMax()) ups.push({ kind: 'wup', id });
   for (const id in S.passives) if (S.passives[id].lvl < passiveMax(id)) ups.push({ kind: 'pup', id });
   if (slotWeapons().length < slotCount().weapons)
     for (const id in WEAPONS) if (!S.weapons[id]) newW.push({ kind: 'wnew', id });
@@ -1725,7 +1747,8 @@ function choiceInfo(c) {
   if (c.kind === 'pnew') return Object.assign(base, { desc: d.levels[0], tag: `NEW PASSIVE · ${nP + 1}/${slotCount().passives}` });
   const lvl = isW ? S.weapons[c.id].lvl : S.passives[c.id].lvl;
   const sig = isW && S.weapons[c.id].builtin ? 'SHIP ' : '';
-  return Object.assign(base, { desc: d.levels[lvl], tag: `${sig}${isW ? 'WEAPON' : 'PASSIVE'} · LV ${lvl} → ${lvl + 1}` });
+  const cap = isW ? weaponMax() : passiveMax(c.id);
+  return Object.assign(base, { desc: levelText(d, lvl, isW), tag: `${sig}${isW ? 'WEAPON' : 'PASSIVE'} · LV ${lvl} → ${lvl + 1} / ${cap}${lvl >= CFG.maxLevel ? ' · OVERCHARGE' : ''}` });
 }
 
 function openLevelUp() {
@@ -1809,11 +1832,14 @@ function gameUpdate(dt) {
   S.laser = null;
   for (const id in S.weapons) {
     S.sig = !!S.weapons[id].builtin;     // signature weapon gets CFG.signatureCooldown
-    const w = S.weapons[id], before = w.t;
+    const w = S.weapons[id], before = w.t, real = w.lvl, over = Math.max(0, real - CFG.maxLevel);
+    w.lvl = Math.min(CFG.maxLevel, real);  // weapons behave as level 5 at most...
+    S.overDmg = 1 + CFG.overchargeDmg * over; S.overCd = Math.pow(CFG.overchargeCd, over);   // ...plus overcharge
     WEAPONS[id].update(w, dt);
+    w.lvl = real;
     if (w.t > before + 1e-6) snd(id);    // the weapon just fired a volley
   }
-  S.sig = false;
+  S.sig = false; S.overDmg = 1; S.overCd = 1;
 
   // --- the stage: 3 mini-bosses on the clock, then the final boss when time runs out
   const events = LEVEL_EVENTS();
@@ -1847,6 +1873,7 @@ function gameUpdate(dt) {
 
   // --- novas (shockwaves): damage once per enemy, erase enemy bullets
   for (const n of S.novas) {
+    if (n.delay > 0) { n.delay -= dt; continue; }
     n.age += dt;
     n.r = n.max * Math.min(1, n.age / (n.small ? 0.15 : 0.35));
     if (n.hit) {
@@ -2004,6 +2031,8 @@ function resetProgress() {             // wipes the save but keeps your sound se
 function sliderAt(pt) { for (const sl of uiSliders) if (inRect(pt, sl.rect)) return sl; return null; }
 function dragSlider(sl, pt) { sl.set(clamp((pt.x - sl.x0) / (sl.x1 - sl.x0), 0, 1)); }
 
+function affordableUpgrades() { return HANGAR.filter(h => ML(h.id) < h.max && META.bank >= hangarCost(h)).length; }
+function openUpgrades() { openHangar(); hangarTab = 'upgrades'; }
 function openHangar() { newGame('hangar'); S.uiLock = 0.15; }
 function openStages() { newGame('stages'); S.uiLock = 0.15; }
 function resume() { S.state = 'play'; input.dx = input.dy = 0; S.p.invuln = Math.max(S.p.invuln, CFG.postPauseInvuln); }
