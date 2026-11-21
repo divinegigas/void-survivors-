@@ -1337,7 +1337,7 @@ function drawWorld() {
     ctx.restore();
   }
 
-  if (S.hole) drawHole(S.hole);
+  if (S.holes) for (const h of S.holes) if (!h.done) drawHole(h);
 
   for (const e of S.enemies) drawEnemy(e);
   drawGibs();
@@ -1581,7 +1581,7 @@ function drawMushroom(m) {                 // Megaton: a comic fireball and mush
   ctx.restore(); ctx.globalAlpha = 1;
 }
 function drawUltBorder() {                 // while an ultimate is running, the screen edge glows in its colour
-  const active = S.overdrive > 0 ? '#2ec5ff' : S.warp > 0 ? '#7de0ff' : S.phase > 0 ? '#ff3fa4' : S.hole ? '#a45cff' : S.barrage ? '#ff8c1a' : S.mushroom ? '#ffd60a' : null;
+  const active = S.overdrive > 0 ? '#2ec5ff' : S.warp > 0 ? '#7de0ff' : S.phase > 0 ? '#ff3fa4' : S.holes ? '#a45cff' : S.barrage ? '#ff8c1a' : S.mushroom ? '#ffd60a' : null;
   if (!active) return;
   ctx.globalAlpha = 0.35 + 0.2 * Math.sin(S.t * 10);
   ctx.lineWidth = 10; ctx.strokeStyle = active; ctx.strokeRect(0, 0, W, H);
@@ -1834,14 +1834,14 @@ function drawPilotFace(id, mood, x, y, w, h) {
 
 function drawLevelUp() {
   dim(0.7);
-  const isUlt = S.choices[0] && S.choices[0].kind === 'ult';
+  const isUlt = S.choices[0] && (S.choices[0].kind === 'ult' || S.choices[0].kind === 'uup'), isUup = isUlt && S.choices[0].kind === 'uup';
   const n = S.choices.length, ch = 92, gap = 14, total = n * ch + (n - 1) * gap;
   const y0 = Math.max(170, H * 0.5 - total / 2);
   const titleY = y0 - 84;
-  slamTitle(isUlt ? 'ULTIMATE!' : 'LEVEL UP!', W / 2, titleY, 42, isUlt ? COL.red : COL.gold, isUlt ? COL.gold : PAPER);
+  slamTitle(isUup ? 'ULTIMATE UP!' : isUlt ? 'ULTIMATE!' : 'LEVEL UP!', W / 2, titleY, 42, isUlt ? COL.red : COL.gold, isUlt ? COL.gold : PAPER);
   const ek = easeOut(clamp(UIM.t / 0.3, 0, 1));
   ctx.globalAlpha = ek;
-  inkText(isUlt ? 'PICK YOUR SUPER MOVE' : `LEVEL ${S.choiceLevel}: CHOOSE ONE`, W / 2, titleY + 46, 15, PAPER);
+  inkText(isUup ? `LEVEL ${S.choiceLevel}: POWER UP ${ULTS[S.ult.id].name.toUpperCase()}` : isUlt ? 'PICK YOUR SUPER MOVE' : `LEVEL ${S.choiceLevel}: CHOOSE ONE`, W / 2, titleY + 46, 15, PAPER);
   if (!isUlt) inkText(`WEAPONS ${slotWeapons().length}/${slotCount().weapons}  ·  PASSIVES ${Object.keys(S.passives).length}/${slotCount().passives}`,
                       W / 2, titleY + 64, 11, COL.dim, 'center', FONT_D, 2.5);
   ctx.globalAlpha = 1;

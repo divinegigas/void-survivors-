@@ -30,9 +30,11 @@ const CFG = {
   ultLevel: 10,               // level that offers a choice of ultimate (double-tap to fire)
   ultCooldownMul: 1,          // 0.5 = ultimates recharge twice as fast
   ultCutin: 1.8,              // seconds the game freezes for the ultimate's splash screen (0 = no splash)
-  ultLevelEvery: 10,          // the ultimate levels up every 10 pilot levels (Lv 20 -> ult Lv 2, Lv 30 -> Lv 3...)
-  ultMaxLevel: 5,
-  ultCooldownPerLevel: 0.08,  // each ultimate level recharges 8% faster
+  ultUpgradeEvery: 10,        // every 10th pilot level (20, 30, 40...) the cards are ultimate upgrades instead
+  ultAmplifyMax: 4,           // how many times Amplify can be taken
+  ultChargeMax: 3,            // how many times Quick Charge can be taken
+  ultChargeCut: 0.15,         // each Quick Charge recharges 15% faster
+  ultGhost: 2.0,              // hidden invincibility after the ultimate fires (no blinking)
   ultImpact: 0.35,            // seconds of slow-motion "impact frame" right after the ultimate fires
   miniBossHpMul: 1.25,        // mini-bosses get this much extra health on top of bossHpMul
   bossPowerScale: 0.6,        // bosses get tougher as your firepower grows: health x (your firepower ^ this).
@@ -237,7 +239,7 @@ function resize() {
 // .speed (projectile speed), .pierce.
 // ============================================================================
 function shoot(b) { S.bullets.push(b); return b; }
-const cd = base => base * S.mod.cd * (S.sig ? CFG.signatureCooldown : 1) * (S.overdrive > 0 ? ultOverdriveMul(ultLv()) : 1);
+const cd = base => base * S.mod.cd * (S.sig ? CFG.signatureCooldown : 1) * (S.overdrive > 0 ? ultOverdriveMul(ultLv()) : 1) * (S.warp > 0 && ultPerk('haste') ? 0.6 : 1);
 const spd = v => v * S.mod.speed;
 function nearestEnemy(x, y, maxDist, skip) {
   let best = null, bd = maxDist * maxDist;
@@ -250,7 +252,7 @@ function nearestEnemy(x, y, maxDist, skip) {
 }
 function gunShot(x, y, angle, speed, dmg, color, r) {
   const b = shoot({ x, y, vx: Math.cos(angle) * spd(speed), vy: Math.sin(angle) * spd(speed),
-                    r: r || 3, dmg, kind: 'main', color, pierce: S.mod.pierce });
+                    r: r || 3, dmg, kind: 'main', color, pierce: S.mod.pierce + (S.overdrive > 0 && ultPerk('pierce') ? 2 : 0) });
   if (b.pierce > 0) b.hits = new Set();
   return b;
 }
@@ -461,39 +463,74 @@ const WEAPONS = {
 // ============================================================================
 // Ultimates: offered at CFG.ultLevel. Double-tap the screen to fire; long cooldown.
 // ============================================================================
-// Ultimates level up every CFG.ultLevelEvery pilot levels. L = ultimate level (1-5).
+// Ultimates: picked at level 10, upgraded every 10th level after (Amplify, Quick Charge or a perk). L = Amplify power.
 const ULTS = {
   nuke:      { name: 'Megaton',       glyph: '☢', word: 'KA-BOOM!',   cooldown: 75, color: '#ffd60a',
+               perks: { fallout: ['Fallout', 'The sky keeps burning: 40 damage per second to every enemy for 6s'], chain: ['Chain Reaction', 'Enemies it kills explode and hurt their neighbours'] },
                desc: 'Hits every enemy on screen for huge damage and wipes all bullets',
                up: L => `${400 + 200 * (L - 1)} damage to everything`,
-               fire(L) { for (const e of S.enemies) if (!e.dead && e.y > -10) hitEnemy(e, 400 + 200 * (L - 1), true);
+               fire(L) { for (const e of S.enemies) if (!e.dead && e.y > -10) { hitEnemy(e, 400 + 200 * (L - 1), true); if (e.dead && ultPerk('chain')) explode(e.x, e.y, 60, 120); }
+                         if (ultPerk('fallout')) S.fallout = 6;
                          for (const b of S.ebullets) b.dead = true; S.shake = 1; S.whiteout = 0.35;
                          S.mushroom = { x: S.p.x, y: Math.max(140, S.p.y - 220), t: 0 }; } },
   overdrive: { name: 'Overdrive',     glyph: '⚡', word: 'OVERDRIVE!', cooldown: 60, color: '#2ec5ff',
+               perks: { pierce: ['Piercing Rounds', 'Gun shots pierce 2 extra enemies during Overdrive'], vacuum: ['Vacuum', 'Magnet range x6 while Overdrive runs'] },
                desc: 'All weapons fire 3x faster for 8 seconds',
                up: L => `${8 + 2 * (L - 1)}s, weapons ${Math.round(1 / ultOverdriveMul(L) * 10) / 10}x faster`,
                fire(L) { S.overdrive = 8 + 2 * (L - 1); for (const id in S.weapons) S.weapons[id].t = 0; } },
   warp:      { name: 'Time Warp',     glyph: '⌛', word: 'TIME WARP!', cooldown: 60, color: '#7de0ff',
+               perks: { freeze: ['Deep Freeze', 'Enemies and bullets nearly stop (10% speed instead of 25%)'], haste: ['Time Thief', 'Your weapons fire 40% faster during the warp'] },
                desc: 'Enemies and their bullets crawl at quarter speed for 7 seconds',
                up: L => `${7 + 1.5 * (L - 1)}s of slow time`,
                fire(L) { S.warp = 7 + 1.5 * (L - 1); } },
   barrage:   { name: 'Missile Storm', glyph: '➹', word: 'WHOOSH!',    cooldown: 50, color: '#ff8c1a',
+               perks: { cluster: ['Cluster Warheads', 'Missiles hit 60% harder with wider blasts'], encore: ['Encore', 'A second storm launches 3 seconds later'] },
                desc: 'Launches 32 homing missiles over two seconds',
                up: L => `${32 + 10 * (L - 1)} missiles, ${40 + 10 * (L - 1)} damage each`,
-               fire(L) { S.barrage = { left: 32 + 10 * (L - 1), t: 0, dmg: 40 + 10 * (L - 1) }; } },
+               fire(L) { const k = ultPerk('cluster') ? 1.6 : 1; S.barrage = { left: 32 + 10 * (L - 1), t: 0, dmg: (40 + 10 * (L - 1)) * k, aoe: 30 * k };
+                         if (ultPerk('encore') && !S.encoring) S.encore = 3; } },
   phase:     { name: 'Phase Ram',     glyph: '◈', word: 'PHASE RAM!', cooldown: 50, color: '#ff3fa4',
+               perks: { finale: ['Grand Finale', 'Ends with a huge shockwave: 300 damage around you'], wide: ['Battering Ram', 'Ram and bullet-eating radius doubled'] },
                desc: 'Untouchable for 6 seconds: ram enemies and eat bullets',
                up: L => `${6 + 1.5 * (L - 1)}s, ram damage x${(1 + 0.4 * (L - 1)).toFixed(1)}`,
                fire(L) { S.phase = 6 + 1.5 * (L - 1); } },
   hole:      { name: 'Black Hole',    glyph: '◉', word: 'VWOOMP!',    cooldown: 65, color: '#a45cff',
+               perks: { twin: ['Twin Singularity', 'Opens two black holes'], supernova: ['Supernova', 'Collapses in a 400-damage blast'] },
                desc: 'A black hole sucks in enemies and bullets for 6 seconds',
                up: L => `${6 + (L - 1)}s, pull radius ${170 + 25 * (L - 1)}`,
-               fire(L) { S.hole = { x: S.p.x, y: Math.max(130, S.p.y - 200), t: 6 + (L - 1), R: 170 + 25 * (L - 1), dmg: 160 * (1 + 0.4 * (L - 1)) }; } },
+               fire(L) { const mk = x => ({ x, y: Math.max(130, S.p.y - 200), t: 6 + (L - 1), R: 170 + 25 * (L - 1), dmg: 160 * (1 + 0.4 * (L - 1)) });
+                         S.holes = ultPerk('twin') ? [mk(clamp(S.p.x - 90, 60, W - 60)), mk(clamp(S.p.x + 90, 60, W - 60))] : [mk(S.p.x)]; } },
 };
 const ultOverdriveMul = L => Math.max(0.2, 0.33 - 0.03 * (L - 1));
-const ultLevelFor = lvl => clamp(1 + Math.floor((lvl - CFG.ultLevel) / CFG.ultLevelEvery), 1, CFG.ultMaxLevel);
-const ultLv = () => (S && S.ult && S.ult.lv) || 1;
-const ultCooldown = (id, L) => Math.round(ULTS[id].cooldown * CFG.ultCooldownMul * (1 - CFG.ultCooldownPerLevel * ((L || ultLv()) - 1)));
+const ultLv = () => (S && S.ult && S.ult.power) || 1;                  // effect strength (1 + Amplify picks)
+const ultPerk = k => !!(S && S.ult && S.ult.perks && S.ult.perks[k]);
+const ultCooldown = id => {
+  const ch = S && S.ult && S.ult.id === id ? S.ult.charge || 0 : 0;
+  return Math.round(ULTS[id].cooldown * CFG.ultCooldownMul * Math.pow(1 - CFG.ultChargeCut, ch));
+};
+// The ultimate upgrade cards offered every 10th level
+function ultUpgradeChoices() {
+  const u = S.ult, out = [];
+  if ((u.power || 1) <= CFG.ultAmplifyMax) out.push({ kind: 'uup', id: 'power' });
+  if ((u.charge || 0) < CFG.ultChargeMax) out.push({ kind: 'uup', id: 'charge' });
+  for (const k in ULTS[u.id].perks) if (!u.perks[k]) out.push({ kind: 'uup', id: k });
+  return shuffle(out).slice(0, CFG.upgradeChoices);
+}
+function ultUpInfo(id) {
+  const u = S.ult, U = ULTS[u.id];
+  if (id === 'power') return ['Amplify', U.up(ultLv() + 1), '▲', `POWER ${ultLv()} → ${ultLv() + 1}`];
+  if (id === 'charge') { const now = ultCooldown(u.id); return ['Quick Charge', `Recharges ${Math.round(CFG.ultChargeCut * 100)}% faster: ${now}s → ${Math.round(now * (1 - CFG.ultChargeCut))}s`, '↻', `RECHARGE ${(u.charge || 0) + 1}/${CFG.ultChargeMax}`]; }
+  const p = U.perks[id];
+  return [p[0], p[1], '★', 'UNIQUE PERK'];
+}
+function applyUltUpgrade(id) {
+  const u = S.ult;
+  if (id === 'power') u.power = (u.power || 1) + 1;
+  else if (id === 'charge') u.charge = (u.charge || 0) + 1;
+  else u.perks[id] = true;
+  u.lv = (u.lv || 1) + 1; u.cd = 0;
+  S.ultLvUp = { name: ULTS[u.id].name.toUpperCase(), lv: u.lv, color: ULTS[u.id].color, t: 0 };
+}
 
 // Double-tap: the game freezes for a dramatic cut-in, then the ultimate fires.
 function activateUlt() {
@@ -511,21 +548,16 @@ function fireUlt(id) {
   burst(W / 2, S.p.y - 90, 70 + 8 * L, u.word, u.color);
   S.ultFx = { t: 0, id, color: u.color, x: S.p.x, y: S.p.y, L };      // shockwaves, flash, speed lines (drawn in art.js)
   S.impact = CFG.ultImpact;                                             // a beat of slow motion
+  S.p.ghost = CFG.ultGhost;                                             // secret: a moment of invincibility, no blinking
   S.shake = Math.max(S.shake, 0.7);
   for (let i = 0; i < 3; i++) S.novas.push({ x: S.p.x, y: S.p.y, r: 0, max: 220 + i * 110, dmg: 0, age: 0, hit: null, color: i === 1 ? PAPER : u.color });
   sparks(S.p.x, S.p.y, u.color, 40); sparks(S.p.x, S.p.y, COL.gold, 20);
   buzz([40, 30, 120]);
 }
-function ultLevelCheck() {         // every 10 pilot levels the ultimate gets stronger
-  if (!S.ult) return;
-  const lv = ultLevelFor(S.level);
-  if (lv > (S.ult.lv || 1)) {
-    S.ult.lv = lv; S.ult.cd = 0;
-    const u = ULTS[S.ult.id];
-    burst(W / 2, S.p.y - 120, 74, `${u.name.toUpperCase()} LV ${lv}!`, u.color);
-    floatText(W / 2, S.p.y - 70, u.up(lv), COL.gold, 11);
-    S.ultLvFlash = 1.6; snd('ultup'); buzz([30, 30, 30, 30, 60]);
-  }
+function ultLevelUpFx() {          // fanfare once you're back in the action after picking an ultimate upgrade
+  const l = S.ultLvUp; S.ultLvUp = null;
+  burst(W / 2, S.p.y - 120, 74, `${l.name} LV ${l.lv}!`, l.color);
+  S.ultLvFlash = 1.6; snd('ultup'); buzz([30, 30, 30, 30, 60]);
 }
 function finishCutin() {
   const id = S.cutin.id;
@@ -546,16 +578,26 @@ function updateUlts(dt) {
   if (S.barrage && (S.barrage.t -= dt) <= 0) {
     S.barrage.t = 0.06;
     const side = S.barrage.left % 2 ? 1 : -1;
-    shoot({ x: p.x + side * 12, y: p.y, vx: side * rand(150, 260), vy: rand(-60, 40), r: 4, dmg: S.barrage.dmg || 40, aoe: 30,
+    shoot({ x: p.x + side * 12, y: p.y, vx: side * rand(150, 260), vy: rand(-60, 40), r: 4, dmg: S.barrage.dmg || 40, aoe: S.barrage.aoe || 30,
             kind: 'rocket', life: 3.5, target: null, retarget: 0, color: '#ff8c1a' });
     if (--S.barrage.left <= 0) S.barrage = null;
   }
-  if (S.phase > 0) {
-    for (const e of S.enemies) if (!e.dead && (e.x - p.x) ** 2 + (e.y - p.y) ** 2 < (e.r + 24) ** 2) hitEnemy(e, 220 * (1 + 0.4 * (ultLv() - 1)) * dt, true);
-    clearBulletsNear(p.x, p.y, 26);
+  if (S.encore > 0 && (S.encore -= dt) <= 0) { S.encoring = true; ULTS.barrage.fire(ultLv()); S.encoring = false; burst(W / 2, p.y - 90, 60, 'ENCORE!', '#ff8c1a'); snd('ult', 'barrage'); }
+  if (S.fallout > 0) {
+    S.fallout -= dt;
+    for (const e of S.enemies) if (!e.dead && e.y > -10) hitEnemy(e, 40 * ultLv() * dt, true);
   }
-  const h = S.hole;
-  if (h) {
+  if (S.phase <= 0 && S.phaseOn) {                // Phase Ram just ended
+    S.phaseOn = false;
+    if (ultPerk('finale')) { S.novas.push({ x: p.x, y: p.y, r: 0, max: 170, dmg: 300 * ultLv(), age: 0, hit: new Set(), color: '#ff3fa4' }); burst(p.x, p.y - 40, 60, 'FINALE!', '#ff3fa4'); S.shake = 0.5; snd('ult', 'phase'); }
+  }
+  if (S.phase > 0) {
+    S.phaseOn = true;
+    const pr = ultPerk('wide') ? 48 : 24;
+    for (const e of S.enemies) if (!e.dead && (e.x - p.x) ** 2 + (e.y - p.y) ** 2 < (e.r + pr) ** 2) hitEnemy(e, 220 * (1 + 0.4 * (ultLv() - 1)) * dt, true);
+    clearBulletsNear(p.x, p.y, pr + 2);
+  }
+  if (S.holes) for (const h of S.holes) {
     h.t -= dt;
     const R = h.R || 170;
     for (const e of S.enemies) {
@@ -569,8 +611,12 @@ function updateUlts(dt) {
       if (d < 22) b.dead = true;
       else if (d < R) { b.vx += dx / d * 600 * dt; b.vy += dy / d * 600 * dt; }
     }
-    if (h.t <= 0) S.hole = null;
+    if (h.t <= 0 && !h.done) {
+      h.done = true;
+      if (ultPerk('supernova')) { S.novas.push({ x: h.x, y: h.y, r: 0, max: h.R * 0.7, dmg: 400 * ultLv(), age: 0, hit: new Set(), color: '#a45cff' }); burst(h.x, h.y, 70, 'SUPERNOVA!', '#a45cff'); S.shake = 0.6; snd('ult', 'hole'); }
+    }
   }
+  if (S.holes && S.holes.every(h => h.done)) S.holes = null;
 }
 
 // ============================================================================
@@ -662,7 +708,7 @@ function newGame(state, stage) {
     weapons: {}, passives: {}, mod: null,
     bullets: [], ebullets: [], enemies: [], orbs: [], parts: [], novas: [], zaps: [], texts: [], bursts: [], laser: null,
     gibs: [], splats: [],
-    ult: null, overdrive: 0, warp: 0, phase: 0, hole: null, barrage: null, whiteout: 0,
+    ult: null, overdrive: 0, warp: 0, phase: 0, holes: null, barrage: null, whiteout: 0,
     spawnT: CFG.spawn.graceTime, ev: 0, warned: false, warn: 0, warnName: '', queenUp: false, victoryT: 0,
     pending: 0, choices: null, choiceLevel: 0, uiLock: 0, uiPress: null, flash: null,
     rerolls: ML('reroll'), revives: ML('revive'),
@@ -1404,7 +1450,7 @@ function flakBurst(b) {
 // ============================================================================
 function damagePlayer() {
   const p = S.p;
-  if (p.invuln > 0 || S.phase > 0) return false;
+  if (p.invuln > 0 || S.phase > 0 || p.ghost > 0) return false;
   if (p.bubble) {                       // Deflector Shield soaks one hit, then recharges
     p.bubble = false; p.bubbleT = shieldRecharge(); p.invuln = 0.6; snd('shield');
     sparks(p.x, p.y, '#6bd6ff', 18); buzz(40);
@@ -1560,6 +1606,10 @@ function buildChoices() {
   if (S.choiceLevel === CFG.ultLevel && !S.ult) {
     return shuffle(Object.keys(ULTS)).slice(0, CFG.upgradeChoices).map(id => ({ kind: 'ult', id }));
   }
+  if (S.ult && S.choiceLevel > CFG.ultLevel && S.choiceLevel % CFG.ultUpgradeEvery === 0) {
+    const ups = ultUpgradeChoices();
+    if (ups.length) return ups;            // everything maxed: normal cards instead
+  }
   const ups = [], newW = [], newP = [];
   for (const id in S.weapons) if (S.weapons[id].lvl < CFG.maxLevel) ups.push({ kind: 'wup', id });
   for (const id in S.passives) if (S.passives[id].lvl < passiveMax(id)) ups.push({ kind: 'pup', id });
@@ -1588,7 +1638,11 @@ function choiceInfo(c) {
   if (c.kind === 'ult') {
     const u = ULTS[c.id];
     return { title: u.name, desc: u.desc, glyph: u.glyph, color: TIER.ult.color, icon: COL.paper,
-             tier: 'ULTIMATE', tag: `DOUBLE-TAP · ${ultCooldown(c.id, ultLevelFor(S.level))}s · LEVELS UP EVERY ${CFG.ultLevelEvery} LEVELS` };
+             tier: 'ULTIMATE', tag: `DOUBLE-TAP · ${ultCooldown(c.id)}s · UPGRADE EVERY ${CFG.ultUpgradeEvery} LEVELS` };
+  }
+  if (c.kind === 'uup') {
+    const [title, desc, glyph, tag] = ultUpInfo(c.id), u = ULTS[S.ult.id];
+    return { title, desc, glyph, color: TIER.ult.color, icon: u.color, tier: `${u.name.toUpperCase()} LV ${(S.ult.lv || 1) + 1}`, tag };
   }
   const nW = slotWeapons().length, nP = Object.keys(S.passives).length;
   if (c.kind === 'fill') {
@@ -1627,14 +1681,15 @@ function choose(i) {
   const c = S.choices && S.choices[i];
   if (!c) return;
   const d = WEAPONS[c.id] || PASSIVES[c.id];
-  snd('pick', c.kind === 'ult' ? 'ult' : d ? d.tier : 'common');
+  snd('pick', c.kind === 'ult' || c.kind === 'uup' ? 'ult' : d ? d.tier : 'common');
   const p = S.p;
   switch (c.kind) {
     case 'wnew': S.weapons[c.id] = { lvl: 1, t: 0, on: 0 }; break;
     case 'wup':  S.weapons[c.id].lvl++; break;
     case 'pnew': S.passives[c.id] = { lvl: 1 }; break;
     case 'pup':  S.passives[c.id].lvl++; break;
-    case 'ult':  S.ult = { id: c.id, cd: 0, lv: ultLevelFor(S.level) }; S.ultHint = 5; break;
+    case 'ult':  S.ult = { id: c.id, cd: 0, lv: 1, power: 1, charge: 0, perks: {} }; S.ultHint = 5; break;
+    case 'uup':  applyUltUpgrade(c.id); break;
     case 'fill': if (c.id === 'repair') p.hp = Math.min(p.maxHp, p.hp + 1); else S.credits += 15; break;
   }
   const before = p.maxHp;
@@ -1648,6 +1703,7 @@ function choose(i) {
     S.choices = null;
     p.invuln = Math.max(p.invuln, CFG.postLevelUpInvuln);
     input.dx = input.dy = 0;
+    if (S.ultLvUp) ultLevelUpFx();
   }
 }
 
@@ -1672,6 +1728,7 @@ function gameUpdate(dt) {
     if (d <= step) { p.x = p.tx; p.y = p.ty; } else { p.x += (dx / d) * step; p.y += (dy / d) * step; }
   }
   p.invuln = Math.max(0, p.invuln - dt);
+  p.ghost = Math.max(0, (p.ghost || 0) - dt);
 
   // --- passive timers
   if (ML('deflector') && !p.bubble && (p.bubbleT -= dt) <= 0) { p.bubble = true; buzz(15); }
@@ -1713,7 +1770,7 @@ function gameUpdate(dt) {
   S.ultHint = Math.max(0, (S.ultHint || 0) - dt);
 
   // --- enemies (Time Warp slows them and their bullets)
-  const edt = S.warp > 0 ? dt * 0.25 : dt;
+  const edt = S.warp > 0 ? dt * (ultPerk('freeze') ? 0.1 : 0.25) : dt;
   for (const e of S.enemies) if (!e.dead) updateEnemy(e, edt);
 
   // --- novas (shockwaves): damage once per enemy, erase enemy bullets
@@ -1741,7 +1798,7 @@ function gameUpdate(dt) {
     if (b.acc && b.vx * b.vx + b.vy * b.vy < b.vmax * b.vmax) { const k = 1 + b.acc * edt; b.vx *= k; b.vy *= k; }   // slow, then fast
     if (b.y < (b.grav ? -200 : -20) || b.y > H + 20 || b.x < -20 || b.x > W + 20) { b.dead = true; continue; }
     const dx = b.x - p.x, dy = b.y - p.y, d2 = dx * dx + dy * dy;
-    if (d2 < (CFG.player.hitRadius + b.r * 0.6) ** 2 && p.invuln <= 0) {
+    if (d2 < (CFG.player.hitRadius + b.r * 0.6) ** 2 && p.invuln <= 0 && !(p.ghost > 0)) {
       b.dead = true;
       damagePlayer();
     }
@@ -1751,7 +1808,7 @@ function gameUpdate(dt) {
   for (const o of S.orbs) {
     o.age += dt;
     const dx = p.x - o.x, dy = p.y - o.y, d = Math.hypot(dx, dy);
-    if (d < p.magnet) {
+    if (d < p.magnet * (S.overdrive > 0 && ultPerk('vacuum') ? 6 : 1)) {
       const pull = CFG.xp.pullSpeed * dt;
       o.x += (dx / d) * Math.min(pull, d);
       o.y += (dy / d) * Math.min(pull, d);
@@ -1775,7 +1832,6 @@ function gameUpdate(dt) {
   // --- level up?
   if (S.state === 'play') {
     while (S.xp >= xpNeed(S.level)) { S.xp -= xpNeed(S.level); S.level++; S.pending++; }
-    ultLevelCheck();
     if (S.pending > 0) openLevelUp();
   }
 }

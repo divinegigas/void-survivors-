@@ -147,17 +147,33 @@ from the ship, the ultimate's symbol swelling behind the action, a beat of slow 
 layered sound (sub-bass drop, distorted hit, a power-chord stab in a big hall reverb, a sparkle run and
 a flavour layer per ultimate). While it runs, the screen edge glows in its colour.
 
-**Ultimate levels:** the ultimate levels up every **10 pilot levels** (Lv 20 → ult Lv 2, Lv 30 → Lv 3,
-up to Lv 5), recharging fully with a fanfare. Each level recharges 8% faster and boosts the effect:
+**Hidden invincibility:** after the ultimate fires you can't be hit for 2s (`ultGhost`). Nothing blinks; it's a secret.
 
-| Ultimate | Per level above 1 |
+**Ultimate upgrades:** at every 10th pilot level after 10 (20, 30, 40…) the level-up cards are **3 ultimate
+upgrades** instead of normal ones (if everything is maxed, normal cards appear). Each pick is +1 ultimate
+level, fully recharges it, and plays a fanfare. The options:
+- **Amplify** (up to 4 times): +1 power. Per power above 1:
+
+| Ultimate | Per power |
 |---|---|
-| Megaton | +200 damage (and a mushroom cloud) |
+| Megaton | +200 damage |
 | Overdrive | +2s, cooldowns ×0.03 lower (down to 0.2) |
 | Time Warp | +1.5s |
 | Missile Storm | +10 missiles, +10 damage each |
 | Phase Ram | +1.5s, +40% ram damage |
 | Black Hole | +1s, +25 pull radius, +40% core damage |
+
+- **Quick Charge** (up to 3 times): recharges 15% faster.
+- **Two unique perks** per ultimate (once each):
+
+| Ultimate | Perks |
+|---|---|
+| Megaton | **Fallout**: 40 × power damage per second to every enemy for 6s · **Chain Reaction**: enemies it kills explode (radius 60, 120 dmg) |
+| Overdrive | **Piercing Rounds**: gun shots pierce 2 more during Overdrive · **Vacuum**: magnet ×6 during Overdrive |
+| Time Warp | **Deep Freeze**: enemies at 10% speed instead of 25% · **Time Thief**: your cooldowns ×0.6 during the warp |
+| Missile Storm | **Cluster Warheads**: missiles ×1.6 damage and blast · **Encore**: a second storm 3s later |
+| Phase Ram | **Grand Finale**: ends with a 300 × power shockwave (radius 170) · **Battering Ram**: ram and bullet-eating radius doubled |
+| Black Hole | **Twin Singularity**: two holes, either side of you · **Supernova**: each hole collapses in a 400 × power blast |
 
 | Ultimate | Effect | Recharge |
 |---|---|---|
