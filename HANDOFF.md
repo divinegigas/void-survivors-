@@ -41,8 +41,8 @@ calls happen only at runtime).
   (`BOSS_BRAIN`), level-up cards (`buildChoices`, `choiceInfo`, `choose`), the main update, ship reveals
   (`revealPilot`), the reveal queue (`startReveal`/`nextReveal`/`endReveal`), music tracks (`TRACKS`), settings
   helpers, input. Test hook: `window.STARBURN` (`step(dt, n)` fast-forwards).
-- **`www/audio.js`**: Web Audio synth (no sound files). Instruments, drum `GROOVES`, 15 songs (`SONGS`:
-  `level1..5`, `level1b..5c`), sound effects (`SFX`), music ducking, volume prefs (`PREF.musicVol/sfxVol/vibe`).
+- **`www/audio.js`**: Web Audio synth (no sound files). Instruments, drum `GROOVES`, 16 songs (`SONGS`:
+  `level1..5`, `level1b..5c`, `menu`), sound effects (`SFX`), music ducking, volume prefs (`PREF.musicVol/sfxVol/vibe`).
 - **`www/pilots.js`**: the 12 pilots (names, quotes, shouts, looks), drawn in code and cached (`pilotSprite`).
 - **`www/art.js`**: all drawing and menus. Stage themes, cel-shading helpers (`celBuild`, `oval`, ink outlines,
   white enemy rim pass), every creature drawer (`CREATURE`), HUD, level-up cards, title, Hangar + ship wheel,
@@ -72,8 +72,10 @@ calls happen only at runtime).
   need a stage 1 boss, uncommon a stage 2 boss, rare a stage 3 boss. New ships stay silhouettes until bought.
 - **Secret Boss Rush:** beat stage 5 at full health → "SECRET STAGE: BOSS RUSH!" (and stage "??" on stage
   select): all 20 bosses, one per minute, each with its stage's music and sky. Win → "LEGEND!".
+- **Menu music:** "Launch Bay" (`SONGS.menu` in audio.js) plays on title, Hangar and stage select without restarting
+  between them (`menuMusic()` / `MENU_STATES` in game.js).
 - **Music:** 3 original tracks per stage; the 2nd unlocks after 10 plays of that stage, the 3rd after 20, with a
-  "NEW TRACK INCOMING" record-and-equalizer reveal that plays the song. Pick tracks in Settings → STAGE MUSIC.
+  "NEW TRACK INCOMING" record-and-equalizer reveal that plays the song. Pick tracks in Settings → STAGE MUSIC, or on stage select → ♪ MUSIC (state `tracks`, `drawTracks`), which appears once any stage has a 2nd track.
 - **Settings** (title and pause screens): music and sound sliders, vibration, stage music, Reset Progress (an
   "ARE YOU SURE?" screen, two taps to erase; keeps sound settings).
 - **HUD:** XP bar on top; level top left with loadout slots under it; clock and stage progress top centre; credits

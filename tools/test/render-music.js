@@ -3,7 +3,7 @@ const { chromium } = require('playwright'); const fs = require('fs');
   const b = await chromium.launch(); const pg = await b.newPage();
   const errs = []; pg.on('pageerror', e => errs.push(e.message));
   await pg.goto('file://' + require('path').resolve(__dirname, '../../www/index.html')); await pg.waitForTimeout(400);
-  const ids = process.argv.slice(2).length ? process.argv.slice(2) : ['level1','level1b','level1c','level2','level2b','level2c','level3','level3b','level3c','level4','level4b','level4c','level5','level5b','level5c'];
+  const ids = process.argv.slice(2).length ? process.argv.slice(2) : ['level1','level1b','level1c','level2','level2b','level2c','level3','level3b','level3c','level4','level4b','level4c','level5','level5b','level5c','menu'];
   for (const id of ids) {
     const r = await pg.evaluate(async ([id, secs]) => {
       const oc = new OfflineAudioContext(2, 44100 * secs, 44100);

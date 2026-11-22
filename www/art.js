@@ -1379,7 +1379,7 @@ function drawWorld() {
   }
   ctx.globalAlpha = 1;
 
-  if (!['over', 'title', 'hangar', 'stages'].includes(S.state) && !(S.state === 'reveal' && S.reveal.next === 'over')) drawPlayer();
+  if (!['over', 'title', 'hangar', 'stages', 'tracks'].includes(S.state) && !(S.state === 'reveal' && S.reveal.next === 'over')) drawPlayer();
 
   drawEnemyShots();
 
@@ -2273,9 +2273,68 @@ function drawStages() {
     addButton('st' + i, { x: 12, y, w: W - 24, h: ph }, () => startGame(i), open);
   }
   UIM.idx = n;
+  if (anyTrackChoice()) {               // a 2nd track is unlocked somewhere: the MUSIC screen joins the bottom row
+    const t3 = (W - 48) / 3;
+    drawButton('back', 12, H - 64, t3, 48, 'BACK', '#5a5480', () => { newGame('title'); });
+    drawButton('music', 24 + t3, H - 64, t3, 48, '♪ MUSIC', '#a45cff', openTracks);
+    drawButton('hangar', 36 + t3 * 2, H - 64, t3, 48, 'HANGAR', '#ff8c1a', openHangar);
+  } else {
+    const tw = (W - 44) / 2;
+    drawButton('back', 16, H - 64, tw, 48, 'BACK', '#5a5480', () => { newGame('title'); });
+    drawButton('hangar', 28 + tw, H - 64, tw, 48, 'HANGAR', '#ff8c1a', openHangar);
+  }
+}
+
+// --- Stage select > MUSIC: each stage's 3 tracks; tap one to hear it and make it that stage's music ----------
+function fitFont(text, maxW, size, min) {   // biggest display size (down to min) that fits maxW
+  for (; size > min; size -= 0.5) { ctx.font = `${size}px ${FONT_D}`; if (ctx.measureText(text).width <= maxW) break; }
+  return size;
+}
+function drawEq(x, y, h, color) {          // a little bouncing equalizer: "this one is playing"
+  const tt = performance.now() / 1000;
+  for (let k = 0; k < 3; k++) {
+    const bh = h * (0.35 + 0.65 * Math.abs(Math.sin(tt * (5 + k * 1.7) + k * 1.3)));
+    ctx.fillStyle = INK; ctx.fillRect(x + k * 6 - 1, y - bh - 1, 6, bh + 2);
+    ctx.fillStyle = color; ctx.fillRect(x + k * 6, y - bh, 4, bh);
+  }
+}
+function drawTracks() {
+  slamTitle('STAGE MUSIC', W / 2, 40, 32, COL.gold, COL.red);
+  plainText('Tap a track to hear it · it plays on that stage', W / 2, 72, 11, PAPER, 'center', FONT_B);
+  const top = 88, bottom = H - 76, gap = 8, bh = (bottom - top - gap * (STAGE_COUNT - 1)) / STAGE_COUNT;
+  const cw = (W - 32 - 16) / 3, ch = Math.min(50, bh - 24), playing = musicNow();
+  for (let i = 1; i <= STAGE_COUNT; i++) {
+    const y = top + (i - 1) * (bh + gap), stOpen = i <= (META.unlocked || 1), open = tracksOpen(i), sel = trackIdx(i), plays = META.plays[i] || 0;
+    const e = enterK(i - 1, 0.05);
+    ctx.save(); ctx.translate((1 - e) * W * (i % 2 ? 1 : -1), 0);
+    inkText(String(i).padStart(2, '0'), 30, y + 9, 20, stOpen ? COL.gold : '#5a5480', 'center', FONT_D, 4);
+    plainText(stOpen ? STAGES[i].name : '???', 50, y + 10, 15, stOpen ? PAPER : '#6b6590', 'left');
+    plainText(`${plays} PLAY${plays === 1 ? '' : 'S'}`, W - 18, y + 10, 11, COL.dim, 'right');
+    const cy = y + 20;
+    for (let k = 0; k < 3; k++) {
+      const x = 16 + k * (cw + 8), id = 'trk' + i + '_' + k, unlocked = stOpen && k < open, on = unlocked && k === sel;
+      const pressed = S.uiPress === id && unlocked, d = pressed ? 3 : 0;
+      ctx.save(); ctx.translate(d, d);
+      slant(x, cy, cw, ch, on ? COL.gold : unlocked ? '#a45cff' : '#2a2440', pressed ? 0 : on ? 5 : 3, 8);
+      if (unlocked) {
+        const name = TRACKS[i][k][1].toUpperCase(), fs = fitFont(name, cw - 18, 16, 9);
+        if (on) plainText(name, x + cw / 2, cy + ch * 0.4, fs, INK); else inkText(name, x + cw / 2, cy + ch * 0.4, fs, PAPER, 'center', FONT_D, 3);
+        plainText(on ? (playing === TRACKS[i][k][0] ? 'PLAYING' : 'SELECTED') : `TRACK ${k + 1}`, x + cw / 2, cy + ch * 0.76, 10, on ? INK : '#e6dcff', 'center');
+        if (on && playing === TRACKS[i][k][0]) drawEq(x + cw - 30, cy + ch - 5, 11, COL.red);
+      } else {
+        const left = CFG.trackUnlockPlays[k] - plays;
+        plainText('? ? ?', x + cw / 2, cy + ch * 0.4, 16, '#5a5480');
+        plainText(!stOpen ? 'LOCKED' : `${left} MORE PLAY${left === 1 ? '' : 'S'}`, x + cw / 2, cy + ch * 0.76, 10, '#8a84b0', 'center');
+      }
+      ctx.restore();
+      addButton(id, { x, y: cy, w: cw, h: ch }, () => pickTrack(i, k), unlocked);
+    }
+    ctx.restore();
+  }
+  UIM.idx = STAGE_COUNT;
   const tw = (W - 44) / 2;
-  drawButton('back', 16, H - 64, tw, 48, 'BACK', '#5a5480', () => { newGame('title'); });
-  drawButton('hangar', 28 + tw, H - 64, tw, 48, 'HANGAR', '#ff8c1a', openHangar);
+  drawButton('back', 16, H - 64, tw, 48, 'BACK', '#5a5480', openStages);
+  drawButton('launch', 28 + tw, H - 64, tw, 48, `LAUNCH ${(META.lastStage || 1) === SECRET_STAGE ? '??' : META.lastStage || 1}!`, COL.xp, () => startGame(META.lastStage || 1));
 }
 
 // the card that opens each stage
@@ -2539,7 +2598,7 @@ function render() {
   drawStars();
   if (!S) return;
   drawWorld();
-  if (S.state !== 'title' && S.state !== 'hangar' && S.state !== 'stages') drawHud();
+  if (!['title', 'hangar', 'stages', 'tracks'].includes(S.state)) drawHud();
   if (S.state === 'title') drawTitle();
   else if (S.state === 'hangar') drawHangar();
   else if (S.state === 'levelup') drawLevelUp();
@@ -2547,6 +2606,7 @@ function render() {
   else if (S.state === 'cutin') drawCutin();
   else if (S.state === 'reveal') (S.reveal.kind === 'track' ? drawTrackReveal : drawReveal)();
   else if (S.state === 'stages') drawStages();
+  else if (S.state === 'tracks') drawTracks();
   if (S.state === 'play') drawStageIntro();
   else if (S.state === 'over' || S.state === 'won') drawGameOver();
   if (S.settings) drawSettings();

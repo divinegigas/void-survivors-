@@ -127,6 +127,14 @@ function compact(arr) {          // remove dead things without allocating a new 
 // Sound hooks (audio.js). Safe no-ops if audio isn't available.
 const snd = (name, arg) => { if (typeof sfx === 'function') sfx(name, arg); };
 const music = (cmd, id) => { if (typeof musicStart !== 'function') return; cmd === 'start' ? musicStart(id) : musicStop(); };
+const musicNow = () => (typeof MUS !== 'undefined' && MUS.on ? MUS.id : null);   // the song playing right now (or null)
+// The menu theme plays on the title, Hangar and stage select, and keeps going as you move between them.
+const MENU_SONG = 'menu', MENU_STATES = ['title', 'hangar', 'stages'];
+function menuMusic() {
+  if (!S || !MENU_STATES.includes(S.state) || (S.settings && S.settings.previewed)) return;
+  if (typeof AC === 'undefined' || !AC || AC.state !== 'running') return;   // waits for the first tap (browser rule)
+  if (musicNow() !== MENU_SONG) music('start', MENU_SONG);
+}
 function buzz(ms) { if (META.audio && META.audio.vibe === false) return; try { navigator.vibrate && navigator.vibrate(ms); } catch (e) {} }
 
 const TIER = {
@@ -797,10 +805,11 @@ function xpNeed(level) {
 }
 
 function newGame(state, stage) {
-  if (state !== 'play') music('stop');
+  const keepMenu = [...MENU_STATES, 'tracks'].includes(state) && musicNow() === MENU_SONG;   // menu to menu: the theme carries on
+  if (state !== 'play' && !keepMenu) music('stop');
   if (state && state !== 'title' && META.notice) { META.notice = null; saveMeta(); }   // one-time message seen
   S = {
-    state: state || 'play',     // title | hangar | play | levelup | paused | over | won
+    state: state || 'play',     // title | hangar | stages | tracks | play | levelup | paused | over | won | reveal
     t: 0, kills: 0, level: 1, xp: 0, shake: 0, credits: 0,
     p: { x: W / 2, y: H * 0.78, tx: W / 2, ty: H * 0.78, hp: 0, maxHp: 0, invuln: 0, magnet: 0, handling: 1000,
          bubble: false, bubbleT: 0, repairT: 0 },
@@ -2024,6 +2033,7 @@ function update(dt) {
   if (S.flash && (S.flash.t -= dt) <= 0) S.flash = null;
   if (S.armed && (S.armed.t -= dt) <= 0) S.armed = null;
   if (typeof uiTick === 'function') uiTick(dt);
+  menuMusic();
   if (S.state === 'cutin') { S.cutin.t += dt; if (S.cutin.t >= S.cutin.dur) finishCutin(); return; }
   if (S.state === 'reveal') { updateReveal(dt); return; }
   if (S.state === 'play') {
@@ -2072,6 +2082,14 @@ function affordableUpgrades() { return HANGAR.filter(h => ML(h.id) < h.max && ME
 function openUpgrades() { openHangar(); hangarTab = 'upgrades'; }
 function openHangar() { newGame('hangar'); S.uiLock = 0.15; }
 function openStages() { newGame('stages'); S.uiLock = 0.15; }
+// Stage select > MUSIC: pick (and hear) each stage's track. The button appears once any stage has a 2nd track.
+const anyTrackChoice = () => Object.keys(TRACKS).some(st => tracksOpen(st) > 1);
+function openTracks() { newGame('tracks'); S.uiLock = 0.15; }
+function pickTrack(st, i) {
+  if (i >= tracksOpen(st)) return;
+  META.trackSel[st] = i; saveMeta();
+  music('start', TRACKS[st][i][0]);
+}
 function resume() { S.state = 'play'; input.dx = input.dy = 0; S.p.invuln = Math.max(S.p.invuln, CFG.postPauseInvuln); }
 
 function startGame(stage) {
@@ -2156,6 +2174,7 @@ window.addEventListener('keydown', e => {
   }
   if ((k === 'enter' || k === ' ') && (S.state === 'title' || S.state === 'hangar')) openStages();
   else if ((k === 'enter' || k === ' ') && S.state === 'stages') startGame(S.stage);
+  else if ((k === 'escape' || k === 'backspace') && S.state === 'tracks') openStages();
   else if ((k === 'enter' || k === ' ') && S.state === 'won' && S.uiLock <= 0 && (S.stage < STAGE_COUNT || S.secretOpen)) nextStage();
   else if ((k === 'enter' || k === ' ') && S.state === 'reveal' && S.reveal.t > REVEAL.skip) endReveal();
   else if ((k === 'enter' || k === ' ') && (S.state === 'over' || S.state === 'won') && S.uiLock <= 0) openStages();

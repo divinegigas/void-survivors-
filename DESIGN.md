@@ -441,3 +441,12 @@ The **systems, numbers, content and tone stay the same.** What changes is the ca
   any ship reveal): hazard stripes, a spinning record and equalizer while the new song plays, then "UNLOCKED!".
   The new track becomes the stage's track; Settings → STAGE MUSIC lets you cycle (and preview) unlocked tracks and
   shows plays until the next one. The Boss Rush uses each stage's chosen track.
+- **Stage select → ♪ MUSIC:** once any stage has a 2nd track unlocked, the stage select's bottom row gets a
+  **♪ MUSIC** button (BACK · ♪ MUSIC · HANGAR). It opens a screen listing every stage with its 3 tracks: tap an
+  unlocked track to hear it and make it that stage's music (gold = selected, with a bouncing equalizer while it
+  plays); locked tracks show "? ? ?" and how many more plays they need; stages you haven't reached show LOCKED.
+  BACK returns to stage select, LAUNCH starts the last-picked stage.
+- **Menu theme "Launch Bay":** an original heroic synthwave-rock tune (A major, 128 BPM: arp intro, driving hook
+  verse, brass chorus, a quiet starlit breakdown) plays on the title, Hangar and stage select and keeps going as
+  you move between them. It starts on the first tap (phones and browsers only allow sound after a tap). The
+  results screen stays quiet after the victory or defeat sting; the theme comes back on the next menu.

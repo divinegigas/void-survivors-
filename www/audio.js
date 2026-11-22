@@ -701,14 +701,58 @@ Object.assign(SONGS, { level1b: songLevel1b, level1c: songLevel1c, level2b: song
                        level3c: songLevel3c, level4b: songLevel4b, level4c: songLevel4c, level5b: songLevel5b, level5c: songLevel5c });
 
 // ============================================================================
+// MENU THEME · "LAUNCH BAY": the title, Hangar and stage select. Heroic synthwave rock in A major, 128 BPM:
+// a sparkling arp intro, a driving hook verse, a big brass chorus, a quiet starlit breakdown, then round again.
+// Original tune. It keeps playing as you move between the menu screens.
+// ============================================================================
+Object.assign(GROOVES, {
+  drive:  { k: 'x...x...x...x.x.', s: '....X.......X...', h: 'x.x.x.x.x.x.x.x.' },
+  driveC: { k: 'x...x...x...x.x.', s: '....X.......X...', h: '..x.x.x.x.x.x.x.', c: 'x...............' },
+  driveF: { k: 'x...x...x...x...', s: '....X...X.X.XXXX', h: 'x.x.x.x.x.......' },
+  lift:   { k: 'x.......x.......', s: '....X.......X...', h: 'x...x...x...x...', c: 'x...............' },
+});
+function songMenu() {
+  const bars = [];
+  // verse chords A · F#m · D · E (guitar roots, pad chords)
+  const vr = [45, 42, 38, 40, 45, 42, 38, 40], vc = [chord(57, 'M'), chord(54, 'm'), chord(50, 'M'), chord(52, 'M')];
+  const hook = [
+    [[0,2,76],[2,2,73],[4,4,76],[8,2,78],[10,2,76],[12,4,73]], [[0,4,73],[4,2,71],[6,2,69],[8,8,73]],
+    [[0,2,74],[2,2,73],[4,4,71],[8,4,69],[12,4,66]], [[0,6,68],[6,2,69],[8,4,71],[12,4,76]],
+    [[0,2,81],[2,2,80],[4,4,78],[8,2,76],[10,2,78],[12,4,81]], [[0,4,78],[4,4,76],[8,8,73]],
+    [[0,2,74],[2,2,76],[4,4,78],[8,4,81],[12,4,83]], [[0,12,80],[12,2,78],[14,2,76]],
+  ];
+  // chorus chords D · E · C#m · F#m · Bm · D · E · E
+  const cr = [38, 40, 49, 42, 47, 38, 40, 40], cc = [chord(62, 'M'), chord(64, 'M'), chord(61, 'm'), chord(54, 'm'), chord(59, 'm'), chord(62, 'M'), chord(64, 'M'), chord(64, 'M')];
+  const horn = [[[0,8,78],[8,8,81]], [[0,8,80],[8,4,76],[12,4,71]], [[0,12,76],[12,4,73]], [[0,16,73]],
+                [[0,8,74],[8,8,78]], [[0,8,81],[8,8,83]], [[0,16,80]], [[0,8,80],[8,4,83],[12,4,85]]];
+  const octBass = r => [0, 2, 4, 6, 8, 10, 12, 14].map(st => [st, 2, r - 12 + (st % 4 === 2 ? 12 : 0)]);
+  // intro: the arp alone, then the band counts in
+  bars.push({ arp: { notes: chord(69, 'M'), div: 2 }, pad: [[0, 16, vc[0]]] });
+  bars.push({ arp: { notes: chord(69, 'M'), div: 1 }, riser: [[0, 16]], drums: 'build' });
+  const loop = bars.length;
+  for (let i = 0; i < 8; i++) bars.push({ drums: i === 0 ? 'driveC' : i === 7 ? 'driveF' : 'drive', gtr: eighths(vr[i], 8), sbass: octBass(vr[i]),
+                                          arp: { notes: vc[i % 4].map(m => m + 12), div: 1 }, lead2: hook[i] });
+  for (let i = 0; i < 8; i++) bars.push({ drums: i === 0 ? 'lift' : i === 7 ? 'driveF' : 'drive', gtr: eighths(cr[i], 4), bass: [0, 4, 8, 12].map(st => [st, 4, cr[i] - 12]),
+                                          pad: i % 2 ? null : [[0, 32, cc[i]]], brass: horn[i], hit: i === 0 ? [[0, cc[0]]] : null });
+  // breakdown under the stars: pad, bells and the arp
+  const bk = [[[0,8,81],[8,8,76]], [[0,8,78],[8,8,73]], [[0,8,74],[8,4,73],[12,4,71]], [[0,16,76]]];
+  for (let i = 0; i < 4; i++) bars.push({ drums: i === 3 ? 'build' : null, pad: [[0, 16, vc[i]]], bell: bk[i], arp: { notes: vc[i].map(m => m + 12), div: 2 },
+                                          sbass: [[0, 16, vr[i] - 12]], riser: i === 3 ? [[0, 16]] : null });
+  for (let i = 0; i < 8; i++) bars.push({ drums: i === 0 ? 'driveC' : i === 7 ? 'driveF' : 'drive', gtr: eighths(vr[i], 4), sbass: octBass(vr[i]),
+                                          arp: { notes: vc[i % 4].map(m => m + 12), div: 1 }, lead2: hook[i].map(([s, l, m]) => [s, l, m + (i >= 4 ? 0 : 12)]) });
+  return { bpm: 128, bars, loop, gain: 1.15 };
+}
+SONGS.menu = songMenu;
+
+// ============================================================================
 // Sequencer: schedules a little ahead of time so the beat stays tight
 // ============================================================================
-const MUS = { on: false, song: null, bar: 0, step: 0, t: 0, timer: null, intense: false };
+const MUS = { on: false, id: null, song: null, bar: 0, step: 0, t: 0, timer: null, intense: false };
 
 function musicStart(id) {
   audioUnlock();
   if (!AC) return;
-  MUS.song = (SONGS[id] || SONGS.level1)();
+  MUS.song = (SONGS[id] || SONGS.level1)(); MUS.id = id;
   AUD.delay.delayTime.setValueAtTime((60 / MUS.song.bpm) * 0.75, AC.currentTime);   // dotted-eighth echo
   MUS.bar = 0; MUS.step = 0; MUS.t = AC.currentTime + 0.12; MUS.on = true;
   AUD.song.gain.cancelScheduledValues(AC.currentTime);
