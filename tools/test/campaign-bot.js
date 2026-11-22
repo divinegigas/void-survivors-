@@ -4,7 +4,7 @@ const { chromium } = require('playwright');
   const errs = []; pg.on('pageerror', e => errs.push(e.message));
   await pg.goto('file://' + require('path').resolve(__dirname, '../../www/index.html')); await pg.waitForTimeout(400);
   const ship = process.argv[2] || 'vesper', pickMode = process.argv[3] || 'smart';
-  const r = await pg.evaluate(([ship, pickMode]) => {
+  const r = await pg.evaluate(([ship, pickMode, nStages]) => {
     const log = []; META.unlocked = 5; META.ships = Object.keys(SHIPS); META.ship = ship; if (pickMode === 'max') { META.shipLv[ship] = { dmg: 10, rate: 10, hull: 3, magnet: 5, handling: 5, xp: 5 }; } startGame(1); S.intro = 0;
     const pickBest = () => {           // prefer weapon upgrades/new weapons, like a real player chasing damage
       const ch = S.choices || [];
@@ -12,7 +12,7 @@ const { chromium } = require('playwright');
       ch.forEach((c, i) => { const dmgP = ['power', 'multi', 'rapid', 'crit', 'velocity'].includes(c.id); const sc = c.kind === 'ult' ? 9 : dmgP ? 6 : c.kind === 'wup' && c.id === META.ship ? 5.5 : c.kind === 'wnew' ? 5 : c.kind === 'wup' ? 4 : c.kind === 'pnew' ? 3 : c.kind === 'pup' ? 2 : 0; if (sc > bs) { bs = sc; bi = i; } });
       choose(pickMode === 'first' ? 0 : bi);
     };
-    for (let st = 1; st <= (+process.env.STAGES || 5); st++) {
+    for (let st = 1; st <= nStages; st++) {
       const born = {};
       for (let i = 0; i < 60 * 60 * 14; i++) {
         S.p.invuln = 1e9;
@@ -34,7 +34,7 @@ const { chromium } = require('playwright');
       if (st < 5) { if (S.state !== 'won') break; nextStage(); S.intro = 0; }
     }
     return log;
-  }, [ship, pickMode]);
+  }, [ship, pickMode, +process.env.STAGES || 5]);
   for (const l of r) console.log(JSON.stringify(l));
   console.log(errs);
   await b.close();
