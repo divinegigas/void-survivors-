@@ -21,8 +21,9 @@ const CFG = {
     bulletSpeed: 720,
     magnetRadius: 34,         // how close you must fly to pull in XP crystals
     handling: 1100,           // how fast (units/s) a ship can chase your finger; each ship multiplies this
-    flyTop: 100,              // no-fly zone at the top of the screen: the ship stays this far below the top edge...
-    flyBottom: 100,           // ...and this far above the bottom edge (keeps it clear of the hearts and buttons)
+    flyTop: 90,               // no-fly zone at the top of the screen: the ship stays this far below the top edge...
+    flyBottom: 90,            // ...and this far above the bottom edge (keeps it clear of the hearts and buttons)
+    flyBlur: [1.8, 3.2],      // how strongly the top and bottom no-fly strips are blurred (0 = no blur)
   },
 
   drops: {                    // power-ups a destroyed enemy can leave behind (never bosses). One roll per kill.
