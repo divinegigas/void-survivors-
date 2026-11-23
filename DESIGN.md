@@ -50,13 +50,13 @@ lettering) against horror bugs, with a late-90s cel-anime cast of pilots and Per
 
 | Drop | Look | Chance per kill | Effect |
 |---|---|---|---|
-| Repair | red cross | 0.05% + 0.2% per missing heart | +1 hull (nothing at full hull) |
-| Magnet | horseshoe magnet | 0.35% | every XP gem on screen flies to you (700/s) |
-| Spare Shield | blue shield badge | 0.2% | a spinning blue hexagon around the ship that blocks one hit and does **not** recharge; one at a time; the Hangar Deflector Shield (which recharges) takes hits first; carries to the next stage |
-| Flamethrower | flame | 0.18% | 24 s of fire from the ship's nose: a cone 150 long (× area), about ±18°, 150 damage per second (× damage bonuses) to every enemy in it, and it **eats enemy bullets** it touches; a fuel gauge under the ship blinks in the last 3 s; another flamer tops it back up to 24 s |
+| Repair | red cross | 0.03% + 0.08% per missing heart | +1 hull (nothing at full hull) |
+| Magnet | horseshoe magnet | 0.18% | every XP gem on screen flies to you (700/s) |
+| Spare Shield | blue shield badge | 0.1% | a spinning blue hexagon around the ship that blocks one hit and does **not** recharge; one at a time; the Hangar Deflector Shield (which recharges) takes hits first; carries to the next stage |
+| Flamethrower | flame | 0.09% | 24 s of fire from the ship's nose: a cone 150 long (× area), about ±18°, 150 damage per second (× damage bonuses) to every enemy in it, and it **eats enemy bullets** it touches; a fuel gauge under the ship blinks in the last 3 s; another flamer tops it back up to 24 s |
 
-  Drops are rare: about 0.8% of kills, so with 300–650 kills a stage expect **3–4 drops a stage** at full health
-  (about half magnets, a quarter each shields and flamers), plus roughly one extra Repair per missing heart.
+  Drops are rare: about 0.4% of kills, so with 300–650 kills a stage expect **about 2 drops a stage** at full health
+  (about half magnets, a quarter each shields and flamers), plus one extra Repair every 2–3 stages per missing heart.
 
 ---
 

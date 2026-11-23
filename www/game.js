@@ -27,12 +27,12 @@ const CFG = {
   },
 
   drops: {                    // power-ups a destroyed enemy can leave behind (never bosses). One roll per kill.
-                              // A stage has about 300-650 kills: these add up to ~0.8% a kill, so 3-4 drops a stage.
-    heal: 0.0005,             // red cross, +1 hull: 0.05% chance...
-    healPerMissing: 0.002,    // ...plus 0.2% for every heart you're missing (about 1 extra cross a stage per missing heart)
-    magnet: 0.0035,           // 0.35%: pulls every XP gem on screen to you
-    shield: 0.002,            // 0.2%: a spare shield that blocks one hit and does NOT recharge (one at a time)
-    flame: 0.0018,            // 0.18%: a flamethrower that burns everything in front of you and eats enemy bullets
+                              // A stage has about 300-650 kills: these add up to ~0.4% a kill, so about 2 drops a stage.
+    heal: 0.0003,             // red cross, +1 hull: 0.03% chance...
+    healPerMissing: 0.0008,   // ...plus 0.08% for every heart you're missing (about 1 extra cross every 2-3 stages per missing heart)
+    magnet: 0.0018,           // 0.18%: pulls every XP gem on screen to you
+    shield: 0.001,            // 0.1%: a spare shield that blocks one hit and does NOT recharge (one at a time)
+    flame: 0.0009,            // 0.09%: a flamethrower that burns everything in front of you and eats enemy bullets
     flameTime: 24,            // seconds the flamethrower lasts (another one tops it back up)
     flameDps: 150,            // damage per second to each enemy in the flames (x your damage bonuses)
     flameLength: 150,         // how far the flames reach (x Blast Amplifier area)

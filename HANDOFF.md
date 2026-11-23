@@ -106,8 +106,8 @@ only; no personal details in the repo.
 - **Prizes for clearing stages 4 and 5** (the owner wants to brainstorm). Ideas so far: alternate pilot outfits or
   ship paint jobs (with the same reveal), new ultimates (a 7th and 8th), a starting perk or extra reroll,
   "prestige" ship variants, a hard mode, a bestiary / codex of every enemy and boss.
-- **Drop rates:** tuned to 3–4 drops a stage at full health (owner's request; the first try at 1–2% was far too
-  many). Kill counts differ per stage, so check later stages still land near that.
+- **Drop rates:** tuned to about 2 drops a stage at full health (owner's request; 1–2% and then 3–4 a stage were
+  both too many). Kill counts differ per stage, so check later stages still land near that.
 - **Balance to watch:** final and mini-boss fight lengths with the firepower scaling (`bossPowerScale`), the
   20-minute Boss Rush length (`rush.gap`), level caps and overcharge strength, Multishot rarity, the early XP curve.
 - **Pilot art** is a placeholder; real portraits will be made in another app and swapped in later.
