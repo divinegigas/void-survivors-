@@ -484,6 +484,34 @@ function drawPlayer() {
   }
 }
 
+// No-fly zones: the strips at the top and bottom the ship can't enter are frosted with a strong blur.
+// Cheap on phones: copy each strip into a small canvas (4x smaller), then stretch it back with a blur filter.
+// Drawn before the ship and enemy bullets so those stay crisp (never hide a bullet).
+let noFlyCv = null;
+function drawNoFly() {
+  const k = 4, sc = cv.width / W, strips = [[0, CFG.player.flyTop], [H - CFG.player.flyBottom, CFG.player.flyBottom]];
+  if (!noFlyCv) noFlyCv = document.createElement('canvas');
+  const sw = Math.ceil(cv.width / k), sh = Math.ceil(Math.max(CFG.player.flyTop, CFG.player.flyBottom) * sc / k);
+  if (noFlyCv.width !== sw || noFlyCv.height !== sh) { noFlyCv.width = sw; noFlyCv.height = sh; }
+  const nc = noFlyCv.getContext('2d');
+  ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
+  for (const [y0, h] of strips) {
+    const py = Math.round(y0 * sc), ph = Math.round(h * sc), dh = Math.ceil(ph / k);
+    nc.clearRect(0, 0, sw, sh);
+    nc.drawImage(cv, 0, py, cv.width, ph, 0, 0, sw, dh);             // shrink (already soft)...
+    ctx.save(); ctx.beginPath(); ctx.rect(0, py, cv.width, ph); ctx.clip();
+    ctx.filter = `blur(${(3.2 * sc).toFixed(1)}px)`;                    // ...then stretch back blurred
+    ctx.drawImage(noFlyCv, 0, 0, sw, dh, -6 * sc, py - 6 * sc, cv.width + 12 * sc, ph + 12 * sc);
+    ctx.filter = 'none';
+    ctx.fillStyle = 'rgba(29,22,72,0.28)'; ctx.fillRect(0, py, cv.width, ph);   // a cool frosted tint
+    ctx.restore();
+    // a thin bright edge where the flying space begins
+    const ey = y0 === 0 ? py + ph : py;
+    ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.fillRect(0, ey - sc, cv.width, 2 * sc);
+  }
+  ctx.restore();
+}
+
 // The flamethrower drop: a flickering cone of comic fire from the ship's nose
 function drawFlamer(p) {
   const D = CFG.drops, len = D.flameLength * S.mod.area, tan = Math.tan(D.flameAngle), ax = p.x, ay = p.y - 16, t = S.t;
@@ -1469,6 +1497,7 @@ function drawWorld() {
   }
   ctx.globalAlpha = 1;
 
+  if (!['title', 'hangar', 'stages', 'tracks'].includes(S.state)) drawNoFly();   // before the ship and enemy bullets, so they stay sharp
   if (!['over', 'title', 'hangar', 'stages', 'tracks'].includes(S.state) && !(S.state === 'reveal' && S.reveal.next === 'over')) drawPlayer();
 
   drawEnemyShots();

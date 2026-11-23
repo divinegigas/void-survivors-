@@ -31,6 +31,8 @@ lettering) against horror bugs, with a late-90s cel-anime cast of pilots and Per
   **handling** speed (`1100 units/s × ship handling`), so your finger never covers the ship.
 - **No-fly zones:** the ship can't go within 100 units of the top or the bottom of the screen (`flyTop`,
   `flyBottom`), so it never sits under the XP bar or behind the hearts, portrait and ultimate button.
+  Both strips are frosted with a strong blur and a cool tint, with a faint bright line where flying space begins.
+  The ship, enemy bullets and the HUD are drawn on top, sharp, so a bullet is never hidden (`drawNoFly` in art.js).
 - **Hitbox:** only a tiny white dot (radius 4) can be hit, bullet-hell style. Hits cost 1 hull,
   then give 1.2s of blinking invulnerability and clear enemy bullets within 70 units (mercy).
 - **XP gems** drift downward. Inside your **magnet radius** (34 × pickup stat) they fly to you at
