@@ -447,6 +447,7 @@ function drawPlayer() {
     }
     ctx.restore(); ctx.globalAlpha = 1;
   }
+  if (S.flame > 0) drawFlamer(p);
   if (!blink) drawShip(p.x, p.y, SHIP_SIZE, S.ship);
   // hitbox dot: the only part that can be hit
   ctx.fillStyle = PAPER;
@@ -466,7 +467,95 @@ function drawPlayer() {
     ctx.beginPath(); ctx.arc(p.x, p.y, 20, UP, UP + TAU * f); ctx.stroke();
     ctx.globalAlpha = 1;
   }
+  // spare shield from a drop: a spinning hexagon outside the Deflector ring
+  if (p.spare) {
+    ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(S.t * 1.5);
+    const hex = []; for (let k = 0; k < 6; k++) { const a = (k / 6) * TAU; hex.push(Math.cos(a) * 27, Math.sin(a) * 27); }
+    path(hex); ctx.closePath(); ctx.lineJoin = 'round';
+    ctx.lineWidth = 5.5; ctx.strokeStyle = INK; ctx.stroke();
+    ctx.lineWidth = 2.8; ctx.strokeStyle = DROP.shield.color; ctx.globalAlpha = 0.8 + 0.2 * Math.sin(S.t * 6); ctx.stroke();
+    ctx.globalAlpha = 1; ctx.restore();
+  }
+  // flamethrower fuel gauge under the ship (blinks in the last 3 seconds)
+  if (S.flame > 0 && (S.flame > 3 || Math.floor(S.flame * 6) % 2 === 0)) {
+    const w = 36, f = S.flame / CFG.drops.flameTime;
+    ctx.fillStyle = INK; ctx.fillRect(p.x - w / 2 - 2, p.y + 30, w + 4, 7);
+    ctx.fillStyle = DROP.flame.color; ctx.fillRect(p.x - w / 2, p.y + 32, w * f, 3);
+  }
 }
+
+// The flamethrower drop: a flickering cone of comic fire from the ship's nose
+function drawFlamer(p) {
+  const D = CFG.drops, len = D.flameLength * S.mod.area, tan = Math.tan(D.flameAngle), ax = p.x, ay = p.y - 16, t = S.t;
+  const cone = (k, a) => {                 // k = size of this layer (1 = full), jagged tongues along the top
+    const L = len * k, hw = L * tan, pts = [ax - 7 * k, ay];
+    const n = 9;
+    for (let i = 0; i <= n; i++) {
+      const u = i / n, x = ax - hw + u * hw * 2;
+      const tongue = (i % 2 ? 0.78 : 1) + 0.1 * Math.sin(t * 22 + i * 1.9 + k * 4);
+      pts.push(x + Math.sin(t * 15 + i) * 3, ay - L * tongue * (1 - 0.25 * Math.abs(u - 0.5) * 2));
+    }
+    pts.push(ax + 7 * k, ay);
+    path(pts); ctx.closePath();
+    ctx.globalAlpha = a;
+  };
+  ctx.lineJoin = 'round';
+  cone(1, 0.85); ctx.fillStyle = '#ff5a1f'; ctx.fill(); ctx.globalAlpha = 1; ctx.lineWidth = 3; ctx.strokeStyle = INK; ctx.stroke();
+  cone(0.72, 0.95); ctx.fillStyle = '#ffb21f'; ctx.fill();
+  cone(0.42, 1); ctx.fillStyle = '#fff3b0'; ctx.fill();
+  ctx.globalAlpha = 1;
+  // a few licks of flame curling up the sides
+  for (let k = 0; k < 6; k++) {
+    const ph = (t * 2.2 + k / 6) % 1, up = ph * len * 0.95, side = (k % 2 ? 1 : -1) * up * tan * 0.75;
+    const r = 3 + ph * 9;
+    ctx.globalAlpha = 1 - ph;
+    ctx.fillStyle = ph < 0.4 ? '#fff3b0' : '#ffb21f';
+    ctx.beginPath(); ctx.arc(ax + side + Math.sin(t * 9 + k) * 4, ay - up, r, 0, TAU); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+// Drops: a white disc with an icon, a spinning burst behind it in the drop's colour, and a bob
+function drawDrops() {
+  for (const d of S.drops) {
+    const def = DROP[d.kind], bob = Math.sin(d.age * 4) * 2;
+    ctx.save(); ctx.translate(d.x, d.y + bob);
+    ctx.save(); ctx.rotate(d.age * 2);
+    burstPath(19, 8, 1); ctx.fillStyle = def.color; ctx.globalAlpha = 0.85; ctx.fill(); ctx.globalAlpha = 1;
+    ctx.lineWidth = 2; ctx.strokeStyle = INK; ctx.stroke();
+    ctx.restore();
+    ctx.beginPath(); ctx.arc(0, 0, 11, 0, TAU); ctx.fillStyle = PAPER; ctx.fill(); ctx.lineWidth = 2.4; ctx.strokeStyle = INK; ctx.stroke();
+    DROP_ICON[d.kind]();
+    const tw = Math.sin(d.age * 3);
+    if (tw > 0.5) { ctx.fillStyle = PAPER; sparkle(8, -9, (tw - 0.5) * 5); }
+    ctx.restore();
+  }
+}
+const DROP_ICON = {
+  heal() {                                 // a red cross
+    path([-2.5, -7, 2.5, -7, 2.5, -2.5, 7, -2.5, 7, 2.5, 2.5, 2.5, 2.5, 7, -2.5, 7, -2.5, 2.5, -7, 2.5, -7, -2.5, -2.5, -2.5]); ctx.closePath();
+    ctx.fillStyle = '#ff3b4f'; ctx.fill(); ctx.lineWidth = 1.6; ctx.strokeStyle = INK; ctx.stroke();
+  },
+  magnet() {                               // a horseshoe magnet with silver tips
+    ctx.lineCap = 'butt';
+    ctx.beginPath(); ctx.arc(0, -1, 4.5, 0, Math.PI); ctx.moveTo(4.5, -1); ctx.lineTo(4.5, -6); ctx.moveTo(-4.5, -1); ctx.lineTo(-4.5, -6);
+    ctx.lineWidth = 6; ctx.strokeStyle = INK; ctx.stroke();
+    ctx.lineWidth = 3.4; ctx.strokeStyle = '#ff3b4f'; ctx.stroke();
+    ctx.fillStyle = '#d8d8e8'; ctx.fillRect(-6.2, -7.5, 3.4, 3); ctx.fillRect(2.8, -7.5, 3.4, 3);
+    ctx.lineWidth = 1; ctx.strokeStyle = INK; ctx.strokeRect(-6.2, -7.5, 3.4, 3); ctx.strokeRect(2.8, -7.5, 3.4, 3);
+  },
+  shield() {                               // a blue shield badge
+    path([0, -8, 6.5, -5, 6, 1.5, 0, 8, -6, 1.5, -6.5, -5]); ctx.closePath();
+    ctx.fillStyle = '#2ec5ff'; ctx.fill(); ctx.lineWidth = 1.6; ctx.strokeStyle = INK; ctx.stroke();
+    path([0, -5.5, 3.6, -3.6, 3.3, 0.8, 0, 5]); ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.fill();
+  },
+  flame() {                                // a flame
+    ctx.beginPath(); ctx.moveTo(0, -8.5); ctx.quadraticCurveTo(7.5, -1, 5, 4); ctx.quadraticCurveTo(3, 8, 0, 8); ctx.quadraticCurveTo(-3, 8, -5, 4); ctx.quadraticCurveTo(-6.5, 0, -2, -3); ctx.quadraticCurveTo(-1, -6, 0, -8.5);
+    ctx.fillStyle = '#ff5a1f'; ctx.fill(); ctx.lineWidth = 1.6; ctx.strokeStyle = INK; ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, -2); ctx.quadraticCurveTo(3.5, 2, 2.5, 5); ctx.quadraticCurveTo(0, 7.5, -2.5, 5); ctx.quadraticCurveTo(-3, 2, 0, -2);
+    ctx.fillStyle = '#ffd23f'; ctx.fill();
+  },
+};
 
 // ============================================================================
 // Enemies
@@ -1342,6 +1431,7 @@ function drawWorld() {
 
   for (const e of S.enemies) drawEnemy(e);
   drawGibs();
+  if (S.drops) drawDrops();
 
   drawLaser();
   drawPlayerShots();

@@ -29,6 +29,8 @@ lettering) against horror bugs, with a late-90s cel-anime cast of pilots and Per
 - The ship **fires its weapons automatically**. The player only steers.
 - **Mobile:** drag anywhere. Your finger moves a target point and the ship chases it at its
   **handling** speed (`1100 units/s × ship handling`), so your finger never covers the ship.
+- **No-fly zones:** the ship can't go within 100 units of the top or the bottom of the screen (`flyTop`,
+  `flyBottom`), so it never sits under the XP bar or behind the hearts, portrait and ultimate button.
 - **Hitbox:** only a tiny white dot (radius 4) can be hit, bullet-hell style. Hits cost 1 hull,
   then give 1.2s of blinking invulnerability and clear enemy bullets within 70 units (mercy).
 - **XP gems** drift downward. Inside your **magnet radius** (34 × pickup stat) they fly to you at
@@ -39,6 +41,19 @@ lettering) against horror bugs, with a late-90s cel-anime cast of pilots and Per
   0.8s of grace invulnerability.
 - **Double-tap** fires the **ultimate** (from level 10 on; see §7).
 - The world is **360 units wide**, and its height fits the screen.
+
+- **Drops (power-ups):** every regular enemy you destroy (never a boss, and not the swarm that dies with a
+  final boss) rolls once for a drop (`CFG.drops`). Drops drift down slowly, bob, and your magnet pulls them in
+  like gems; fly into one to grab it ("REPAIR!", "MAGNET!", "SHIELD!", "FLAMER!" with a power-up jingle).
+
+| Drop | Look | Chance per kill | Effect |
+|---|---|---|---|
+| Repair | red cross | 0.2% + 0.2% per missing heart | +1 hull (nothing at full hull) |
+| Magnet | horseshoe magnet | 2% | every XP gem on screen flies to you (700/s) |
+| Spare Shield | blue shield badge | 1% | a spinning blue hexagon around the ship that blocks one hit and does **not** recharge; one at a time; the Hangar Deflector Shield (which recharges) takes hits first; carries to the next stage |
+| Flamethrower | flame | 1% | 24 s of fire from the ship's nose: a cone 150 long (× area), about ±18°, 150 damage per second (× damage bonuses) to every enemy in it, and it **eats enemy bullets** it touches; a fuel gauge under the ship blinks in the last 3 s; another flamer tops it back up to 24 s |
+
+  With 300–650 kills per stage, expect roughly 6–15 magnets, 3–10 flamers and 3–8 spare shields per stage.
 
 ---
 

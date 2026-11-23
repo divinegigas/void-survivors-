@@ -872,6 +872,8 @@ const SFX = {
   cutin:   (t) => cutinStinger(t),
   hit:     (t) => { hiss(t, 'lowpass', 420, 0.25, 0.3); blip(t, 'square', 140, 55, 0.2, 0.08); },
   shield:  (t) => blip(t, 'sine', 1100, 2600, 0.15, 0.07),
+  powerup: (t) => { [0, 4, 7, 12].forEach((k, i) => blip(t + i * 0.055, 'square', 660 * Math.pow(2, k / 12), 0, 0.1, 0.05)); blip(t + 0.22, 'sine', 1320, 2640, 0.25, 0.05); },
+  flame:   (t) => hiss(t, 'bandpass', 600 + Math.random() * 300, 0.2, 0.05, 0.6),
   ult:     (t, id) => ultBlast(t, id),
   ultup:   (t) => ultLevelUpSting(t),
   warning: (t) => { for (let i = 0; i < 4; i++) blip(t + i * 0.36, 'square', i % 2 ? 330 : 440, 0, 0.3, 0.05); },

@@ -21,6 +21,23 @@ const CFG = {
     bulletSpeed: 720,
     magnetRadius: 34,         // how close you must fly to pull in XP crystals
     handling: 1100,           // how fast (units/s) a ship can chase your finger; each ship multiplies this
+    flyTop: 100,              // no-fly zone at the top of the screen: the ship stays this far below the top edge...
+    flyBottom: 100,           // ...and this far above the bottom edge (keeps it clear of the hearts and buttons)
+  },
+
+  drops: {                    // power-ups a destroyed enemy can leave behind (never bosses). One roll per kill.
+    heal: 0.002,              // red cross, +1 hull: 0.2% chance...
+    healPerMissing: 0.002,    // ...plus 0.2% for every heart you're missing
+    magnet: 0.02,             // 2%: pulls every XP gem on screen to you
+    shield: 0.01,             // 1%: a spare shield that blocks one hit and does NOT recharge (one at a time)
+    flame: 0.01,              // 1%: a flamethrower that burns everything in front of you and eats enemy bullets
+    flameTime: 24,            // seconds the flamethrower lasts (another one tops it back up)
+    flameDps: 150,            // damage per second to each enemy in the flames (x your damage bonuses)
+    flameLength: 150,         // how far the flames reach (x Blast Amplifier area)
+    flameAngle: 0.32,         // half-width of the flame cone, in radians (about 18 degrees each side)
+    fallSpeed: 45,            // drops drift down slowly; your magnet pulls them in like gems
+    pickRadius: 20,           // fly this close to grab one
+    vacuumSpeed: 700,         // how fast the magnet drop pulls in gems
   },
 
   // loadout slots come from the stage (STAGES[n].slots): 2+2 on stage 1, +1 of each per stage, 6+6 by stage 5.
@@ -252,7 +269,7 @@ function resize() {
   cv.height = Math.round(vh * dpr);
   SCALE = cv.width / W;
   H = cv.height / SCALE;
-  if (S) { S.p.x = S.p.tx = clamp(S.p.x, 12, W - 12); S.p.y = S.p.ty = clamp(S.p.y, 100, H - 20); }
+  if (S) { S.p.x = S.p.tx = clamp(S.p.x, 12, W - 12); S.p.y = S.p.ty = clamp(S.p.y, CFG.player.flyTop, H - CFG.player.flyBottom); }
   if (typeof artResize === 'function') artResize();
 }
 
@@ -812,10 +829,10 @@ function newGame(state, stage) {
     state: state || 'play',     // title | hangar | stages | tracks | play | levelup | paused | over | won | reveal
     t: 0, kills: 0, level: 1, xp: 0, shake: 0, credits: 0,
     p: { x: W / 2, y: H * 0.78, tx: W / 2, ty: H * 0.78, hp: 0, maxHp: 0, invuln: 0, magnet: 0, handling: 1000,
-         bubble: false, bubbleT: 0, repairT: 0 },
+         bubble: false, bubbleT: 0, repairT: 0, spare: false },
     weapons: {}, passives: {}, mod: null,
     bullets: [], ebullets: [], enemies: [], orbs: [], parts: [], novas: [], zaps: [], texts: [], bursts: [], laser: null,
-    gibs: [], splats: [],
+    gibs: [], splats: [], drops: [], flame: 0, dropLog: {}, dropMade: {},
     ult: null, overdrive: 0, warp: 0, phase: 0, holes: null, barrage: null, whiteout: 0,
     spawnT: CFG.spawn.graceTime, ev: 0, warned: false, warn: 0, warnName: '', queenUp: false, victoryT: 0,
     pending: 0, choices: null, choiceLevel: 0, uiLock: 0, uiPress: null, flash: null,
@@ -1543,6 +1560,74 @@ function killEnemy(e) {
     const a = Math.random() * TAU, sp = rand(30, big ? 160 : 110);
     S.orbs.push({ x: e.x, y: e.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 30, v: val, age: 0 });
   }
+  if (!big && !S.victoryT) rollDrop(e);
+}
+
+// ============================================================================
+// Drops: health, magnet, spare shield, flamethrower (chances in CFG.drops)
+// ============================================================================
+const DROP = {
+  heal:   { word: 'REPAIR!',  color: '#ff3b4f' },
+  magnet: { word: 'MAGNET!',  color: '#3dffb0' },
+  shield: { word: 'SHIELD!',  color: '#2ec5ff' },
+  flame:  { word: 'FLAMER!',  color: '#ff8c1a' },
+};
+function rollDrop(e) {
+  const D = CFG.drops, p = S.p, r = Math.random();
+  const odds = [['heal', D.heal + D.healPerMissing * Math.max(0, p.maxHp - p.hp)], ['magnet', D.magnet], ['shield', D.shield], ['flame', D.flame]];
+  let acc = 0;
+  for (const [kind, c] of odds) {
+    acc += c;
+    if (r < acc) { S.dropMade[kind] = (S.dropMade[kind] || 0) + 1; S.drops.push({ kind, x: clamp(e.x, 16, W - 16), y: e.y, vy: -70, age: 0 }); return; }
+  }
+}
+function updateDrops(dt) {
+  const D = CFG.drops, p = S.p;
+  for (const d of S.drops) {
+    d.age += dt;
+    d.vy = Math.min(D.fallSpeed, d.vy + 140 * dt);
+    const dx = p.x - d.x, dy = p.y - d.y, dist = Math.hypot(dx, dy) || 1;
+    if (dist < p.magnet) { const pull = CFG.xp.pullSpeed * dt; d.x += (dx / dist) * Math.min(pull, dist); d.y += (dy / dist) * Math.min(pull, dist); }
+    else d.y += d.vy * dt;
+    if (dist < D.pickRadius) { d.dead = true; collectDrop(d.kind); }
+    else if (d.y > H + 20) d.dead = true;
+  }
+  compact(S.drops);
+}
+function collectDrop(kind) {
+  const p = S.p, D = CFG.drops, def = DROP[kind];
+  S.dropLog[kind] = (S.dropLog[kind] || 0) + 1;
+  if (kind === 'heal') {
+    if (p.hp < p.maxHp) { p.hp++; floatText(p.x, p.y - 44, '+1 HULL', COL.xp, 12); }
+    else floatText(p.x, p.y - 44, 'HULL FULL', COL.dim, 11);
+  } else if (kind === 'magnet') {
+    for (const o of S.orbs) o.vac = true;
+    S.novas.push({ x: p.x, y: p.y, r: 0, max: Math.max(W, H), dmg: 0, age: 0, hit: null, color: def.color });
+  } else if (kind === 'shield') {
+    p.spare = true;
+  } else if (kind === 'flame') {
+    S.flame = D.flameTime;
+  }
+  burst(p.x, p.y - 30, 30, def.word, def.color);
+  sparks(p.x, p.y, def.color, 16);
+  snd('powerup'); buzz([20, 30, 40]);
+}
+// The flamethrower: a cone of fire from the ship's nose. Burns every enemy in it and eats their bullets.
+function burnFlame(dt) {
+  const D = CFG.drops, p = S.p, len = D.flameLength * S.mod.area, tan = Math.tan(D.flameAngle), ax = p.x, ay = p.y - 16;
+  const inCone = (x, y, r) => { const up = ay - y; return up > -r && up < len + r && Math.abs(x - ax) < 8 + Math.max(0, up) * tan + r; };
+  for (const e of S.enemies) {
+    if (e.dead || !inCone(e.x, e.y, e.r) || e.burnT > S.t) continue;
+    e.burnT = S.t + 0.1;
+    hitEnemy(e, D.flameDps * 0.1, true);
+    if (Math.random() < 0.4) sparks(e.x, e.y + e.r * 0.4, '#ffb21f', 1);
+  }
+  for (const b of S.ebullets) if (!b.dead && inCone(b.x, b.y, b.r)) { b.dead = true; if (Math.random() < 0.3) sparks(b.x, b.y, '#fff3b0', 1); }
+  for (let k = 0; k < 2; k++) {        // embers
+    const up = rand(0.3, 1) * len;
+    S.parts.push({ x: ax + rand(-1, 1) * up * tan, y: ay - up, vx: rand(-20, 20), vy: rand(-90, -40), life: rand(0.2, 0.4), age: 0, color: pick(['#ffb21f', '#ff5a1f', '#fff3b0']), size: rand(1.5, 3) });
+  }
+  if ((S.flameSnd = (S.flameSnd || 0) - dt) <= 0) { S.flameSnd = 0.16; snd('flame'); }
 }
 
 function explode(x, y, radius, dmg) {
@@ -1575,6 +1660,13 @@ function damagePlayer() {
     p.bubble = false; p.bubbleT = shieldRecharge(); p.invuln = 0.6; snd('shield');
     sparks(p.x, p.y, '#6bd6ff', 18); buzz(40);
     clearBulletsNear(p.x, p.y, 40);
+    return true;
+  }
+  if (p.spare) {                        // a spare shield from a drop: blocks one hit, never recharges
+    p.spare = false; p.invuln = 0.8; snd('shield');
+    sparks(p.x, p.y, DROP.shield.color, 24); sparks(p.x, p.y, PAPER, 8); buzz(50);
+    burst(p.x, p.y - 26, 26, 'BLOCKED!', DROP.shield.color);
+    clearBulletsNear(p.x, p.y, 50);
     return true;
   }
   p.hp--;
@@ -1706,7 +1798,7 @@ function nextStage() {
     state: 'play', won: false, t: 0, ev: 0, warned: false, warn: 0, queenUp: false, victoryT: 0,
     spawnT: CFG.spawn.graceTime, intro: 3.2, uiLock: 0, choices: null, shake: 0,
     bullets: [], ebullets: [], enemies: [], orbs: [], parts: [], novas: [], zaps: [], texts: [], bursts: [], gibs: [], splats: [],
-    laser: null, holes: null, barrage: null, overdrive: 0, warp: 0, phase: 0, whiteout: 0, rushStage: 0, encore: 0, fallout: 0,
+    drops: [], flame: 0, laser: null, holes: null, barrage: null, overdrive: 0, warp: 0, phase: 0, whiteout: 0, rushStage: 0, encore: 0, fallout: 0,
     secretFound: false, secretOpen: false,
   });
   S.fireMul = 1 + CFG.stageScale.fire * stageD();
@@ -1854,7 +1946,7 @@ function gameUpdate(dt) {
   const ky = (keys.arrowdown || keys.s ? 1 : 0) - (keys.arrowup || keys.w ? 1 : 0);
   // Your finger moves a target point; the ship chases it at its handling speed.
   p.tx = clamp(p.tx + kx * CFG.player.keySpeed * dt + input.dx * CFG.player.dragSensitivity, 12, W - 12);
-  p.ty = clamp(p.ty + ky * CFG.player.keySpeed * dt + input.dy * CFG.player.dragSensitivity, 100, H - 20);
+  p.ty = clamp(p.ty + ky * CFG.player.keySpeed * dt + input.dy * CFG.player.dragSensitivity, CFG.player.flyTop, H - CFG.player.flyBottom);
   input.dx = input.dy = 0;
   {
     const dx = p.tx - p.x, dy = p.ty - p.y, d = Math.hypot(dx, dy), step = p.handling * dt;
@@ -1882,6 +1974,7 @@ function gameUpdate(dt) {
     if (w.t > before + 1e-6) snd(id);    // the weapon just fired a volley
   }
   S.sig = false; S.overDmg = 1; S.overCd = 1;
+  if (S.flame > 0) { S.flame = Math.max(0, S.flame - dt); burnFlame(dt); }
 
   // --- the stage: 3 mini-bosses on the clock, then the final boss when time runs out
   const events = LEVEL_EVENTS();
@@ -1949,8 +2042,8 @@ function gameUpdate(dt) {
   for (const o of S.orbs) {
     o.age += dt;
     const dx = p.x - o.x, dy = p.y - o.y, d = Math.hypot(dx, dy);
-    if (d < p.magnet * (S.overdrive > 0 && ultPerk('vacuum') ? 6 : 1)) {
-      const pull = CFG.xp.pullSpeed * dt;
+    if (o.vac || d < p.magnet * (S.overdrive > 0 && ultPerk('vacuum') ? 6 : 1)) {
+      const pull = (o.vac ? CFG.drops.vacuumSpeed : CFG.xp.pullSpeed) * dt;
       o.x += (dx / d) * Math.min(pull, d);
       o.y += (dy / d) * Math.min(pull, d);
     } else {
@@ -1967,6 +2060,7 @@ function gameUpdate(dt) {
     } else if (o.y > H + 10) o.dead = true;
   }
 
+  updateDrops(dt);
   updateParticles(dt);
   compact(S.bullets); compact(S.ebullets); compact(S.enemies); compact(S.orbs); compact(S.novas);
 

@@ -63,6 +63,9 @@ calls happen only at runtime).
   stage (5/8/11/14/17); above 5 weapons overcharge. Rapid Fire 1.5× as common; Multishot is the rarest card
   (3 levels, +1 projectile for every weapon). Secret pity: failed runs in a row make rares likelier.
 - **XP:** half-rate gems; levels 1–5 are cheaper (×0.5…0.9).
+- **Drops:** regular kills can drop Repair (cross), Magnet, a Spare Shield or a 24 s Flamethrower (`CFG.drops`;
+  `rollDrop` / `collectDrop` / `burnFlame` in game.js, `drawDrops` / `drawFlamer` in art.js). No-fly zones top and
+  bottom (`CFG.player.flyTop/flyBottom`).
 - **Ultimate:** chosen at level 10, fired by double-tap, with a 1.8 s Persona-style cut-in and a big impact
   (flash, shockwaves, slow-mo, layered sound). Every 10th level after, the cards are ultimate upgrades (Amplify,
   Quick Charge, or one of 2 unique perks). Secret 2 s invincibility after firing.
@@ -103,6 +106,8 @@ only; no personal details in the repo.
 - **Prizes for clearing stages 4 and 5** (the owner wants to brainstorm). Ideas so far: alternate pilot outfits or
   ship paint jobs (with the same reveal), new ultimates (a 7th and 8th), a starting perk or extra reroll,
   "prestige" ship variants, a hard mode, a bestiary / codex of every enemy and boss.
+- **Drop rates:** the owner's numbers (1% flamer, 2% magnet) give several flamers per stage; watch whether that
+  makes stages too easy.
 - **Balance to watch:** final and mini-boss fight lengths with the firepower scaling (`bossPowerScale`), the
   20-minute Boss Rush length (`rush.gap`), level caps and overcharge strength, Multishot rarity, the early XP curve.
 - **Pilot art** is a placeholder; real portraits will be made in another app and swapped in later.

@@ -29,7 +29,7 @@ const { chromium } = require('playwright');
         if (S.victoryT || S.state === 'won') break;
       }
       const fights = Object.entries(born).map(([k, v]) => `${k}:${v.done ? v.done.toFixed(1) : 'alive'}s/${Math.round(v.e.maxHp)}`);
-      log.push({ st, lv: S.level, ult: S.ult && S.ult.id + S.ult.lv, w: Object.keys(S.weapons).map(k => k + S.weapons[k].lvl).join(','), fights: fights.join(' ') });
+      log.push({ st, lv: S.level, kills: S.kills, drops: JSON.stringify(S.dropMade), got: JSON.stringify(S.dropLog), ult: S.ult && S.ult.id + S.ult.lv, w: Object.keys(S.weapons).map(k => k + S.weapons[k].lvl).join(','), fights: fights.join(' ') });
       for (let i = 0; i < 400 && S.state !== 'won'; i++) STARBURN.step(1 / 60, 1);
       if (st < 5) { if (S.state !== 'won') break; nextStage(); S.intro = 0; }
     }
