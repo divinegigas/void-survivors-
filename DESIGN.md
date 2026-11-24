@@ -40,7 +40,8 @@ lettering) against horror bugs, with a late-90s cel-anime cast of pilots and Per
 - **XP needed** for the next level is `round(6 + 3·(L−1) + 0.35·(L−1)²)`. XP gain is scaled by
   `gainRate = 0.5`.
 - **Level-up** pauses the game and shows 3 cards (plus REROLL if owned). After picking, you get
-  0.8s of grace invulnerability.
+  1.5s of blinking grace invulnerability (`postLevelUpInvuln`), and the same 1.5s after unpausing
+  (`postPauseInvuln`), so you never get hit the instant you get control back.
 - **Double-tap** fires the **ultimate** (from level 10 on; see §7).
 - The world is **360 units wide**, and its height fits the screen.
 
@@ -146,7 +147,7 @@ VESPER is free.
 **Pilots:**
 - **The cast:** 7 women and 5 men, original characters drawn in a late-90s cel-anime style.
 - **Expressions:** each pilot has 3: **normal**, **hurt** (hull below max) and **critical** (1 hull, or 34% or less).
-- **Where they appear:** the HUD face (bottom right; it flinches when hit), the ship-select wheel (the
+- **Where they appear:** the HUD portrait (big, bottom left; it flinches when hit), the ship-select wheel (the
   pilot stands behind the ship), the title screen, the pause and results screens, and the ultimate
   cut-in (§7).
 - **Lines:** each pilot has a **quote** and an **ultimate shout**. The full list is in `www/pilots.js`.
@@ -377,12 +378,13 @@ Final bosses (3 phases where listed; each phase change clears the screen with a 
   - Red, black and gold diagonal wipes between screens.
   - The ship-select **wheel** has the ship in front and its pilot behind; locked ships are silhouettes.
 - **HUD:**
-  - XP bar, LV, clock, credits, and hull as hearts.
-  - Stage progress with boss markers.
+  - Phone layout: XP bar across the top; LV top left with the loadout slots under it; clock with stage
+    progress (boss markers) under it at the top centre; credits and pause top right; big pilot portrait
+    bottom left; big hearts along the bottom (they pulse on your last heart); ultimate button bottom right.
   - Signature weapon plus slot rows with tier colours and levels.
   - The pilot's face, and the ultimate countdown ("2x TAP!" when ready).
 - **Audio:** all original, synthesized live (no sound files).
-  - One track per stage.
+  - Three tracks per stage (two unlock with plays, §15) and a menu theme, "Launch Bay".
   - Quiet, rate-limited sound effects for each weapon volley and kill.
   - A big level-up fanfare and a card-pick "ka-ching" that grows fancier with rarity.
   - Cut-in and boss-warning stingers.
@@ -420,6 +422,10 @@ The **systems, numbers, content and tone stay the same.** What changes is the ca
   - *Nova* is a sphere, *Orbit Shards* circle the ship, *Homing Rockets* curve into the depth.
   - Aim assist: target the nearest enemy within a forward cone.
 - **XP gems** stream toward the player along the rail; magnet pull works in the plane.
+- **Drops** (§2) drift toward the camera like gems; the Magnet pulls every gem in; the Flamethrower is a
+  cone of fire forward into the depth that eats enemy bullets inside it.
+- **No-fly zones** (§2) are a phone thing: on a phone they keep the ship out from under the HUD. In 3D the
+  steering box is the limit; if the HUD would cover its edges, shrink the box rather than blur strips.
 - **Stages** become rail paths with set pieces:
   - Hive Fleet: through a swarm cloud.
   - Warp Zone: a tunnel.
@@ -431,12 +437,15 @@ The **systems, numbers, content and tone stay the same.** What changes is the ca
 - **Look:** keep the pop-art comic identity with toon/cel shaders, ink outlines (inverted-hull or
   post-process), halftone shadows and 2D comic lettering for the starbursts. The pilots stay 2D portraits
   in the UI.
-- **Audio:** the same five tracks and sound design; port the synth approach, or render the stems.
+- **Audio:** the same 16 songs (15 stage tracks plus the menu theme) and sound design; port the synth approach,
+  or render the songs to looping audio files.
+- The repository `void-survivors-3d` keeps an `UPDATE-LOG.md` of Android changes made after the 3D project
+  started, with notes on how each fits the 3D game.
 - **Platforms:** Windows and Linux (Fedora first), exported by GitHub Actions.
 
 ---
 
-## 15. Progression tweaks (latest)
+## 15. Progression tweaks and music
 
 - **Easier start:** XP needed for levels 1–5 is ×0.5 / 0.6 / 0.7 / 0.8 / 0.9 (`xp.earlyMul`).
 - **Level caps grow with the stage:** weapons and passives can reach level **5 / 8 / 11 / 14 / 17** on stages 1–5
